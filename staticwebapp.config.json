@@ -11,6 +11,12 @@
       }
     },
     {
+      "route": "/_next/*",
+      "headers": {
+        "cache-control": "public, max-age=31536000"
+      }
+    },
+    {
       "route": "/favicon.ico"
     },
     {
@@ -23,12 +29,15 @@
     "exclude": [
       "/images/*.{png,jpg,gif,svg,ico}",
       "/_next/*",
-      "/favicon.ico"
+      "/favicon.ico",
+      "/*.js",
+      "/*.css"
     ]
   },
   "mimeTypes": {
     ".json": "application/json",
-    ".css": "text/css"
+    ".css": "text/css",
+    ".js": "application/javascript"
   },
   "globalHeaders": {
     "cache-control": "public, max-age=3600"

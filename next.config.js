@@ -11,11 +11,9 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
-  assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
-  distDir: 'out',
-  experimental: {
-    optimizeCss: true
-  }
+  // Remove assetPrefix that's causing issues
+  // Remove distDir override - let Next.js use default 'out'
+  // Remove experimental optimizeCss that breaks styling
 }
 
 module.exports = nextConfig
