@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
-import { FormData, FormDataSchema, AzureRegions } from '@/types/form'
+import { FormData, AzureRegions } from '@/types/form'
 import { NamingService } from '@/lib/naming'
 import { ZipGenerator } from '@/lib/zip-generator'
 import { generateTemplates } from '@/lib/simple-templates'
@@ -101,11 +101,6 @@ export default function WizardPage() {
     } catch (error) {
       console.error('Error generating zip:', error)
     }
-  }
-  
-  const generateNamingPreview = () => {
-    if (!formData.organization || !formData.workload) return {}
-    return NamingService.generateAllResourceNames(formData)
   }
   
   const progress = (currentStep / steps.length) * 100
