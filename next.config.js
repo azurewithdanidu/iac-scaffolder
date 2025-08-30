@@ -12,6 +12,10 @@ const nextConfig = {
     unoptimized: true
   },
   assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
+  distDir: 'out',
+  experimental: {
+    optimizeCss: true
+  }
 }
 
 module.exports = nextConfig

@@ -5,19 +5,33 @@
       "allowedRoles": ["anonymous"]
     },
     {
+      "route": "/_next/static/*",
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "route": "/favicon.ico"
+    },
+    {
       "route": "/*",
       "rewrite": "/index.html"
     }
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/images/*.{png,jpg,gif,svg}", "/css/*"]
+    "exclude": [
+      "/images/*.{png,jpg,gif,svg,ico}",
+      "/_next/*",
+      "/favicon.ico"
+    ]
   },
   "mimeTypes": {
-    ".json": "application/json"
+    ".json": "application/json",
+    ".css": "text/css"
   },
   "globalHeaders": {
-    "cache-control": "must-revalidate, max-age=6000"
+    "cache-control": "public, max-age=3600"
   },
   "responseOverrides": {
     "404": {
