@@ -1241,12 +1241,12 @@ export function generateTemplates(formData: FormData) {
   
   // Compile pipeline templates
   Object.entries(pipelineTemplates).forEach(([key, template]) => {
-    compiledTemplates[\`pipeline_\${key}\`] = Handlebars.compile(template)(context)
+    compiledTemplates[`pipeline_${key}`] = Handlebars.compile(template)(context)
   })
   
   // Compile documentation templates
   Object.entries(docTemplates).forEach(([key, template]) => {
-    compiledTemplates[\`doc_\${key}\`] = Handlebars.compile(template)(context)
+    compiledTemplates[`doc_${key}`] = Handlebars.compile(template)(context)
   })
   
   return compiledTemplates

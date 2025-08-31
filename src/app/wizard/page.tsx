@@ -487,15 +487,15 @@ function renderStepContent(
                 <div>
                   <span className="text-sm font-medium">Modules:</span>
                   <p>{Object.entries(formData.modules)
-                    .filter(([_, enabled]) => enabled)
-                    .map(([key, _]) => key)
+                    .filter(([, enabled]) => enabled)
+                    .map(([key]) => key)
                     .join(', ')}</p>
                 </div>
               </div>
             </div>
             
             <div>
-              <h4 className="font-medium mb-3">What You'll Get</h4>
+              <h4 className="font-medium mb-3">What You&apos;ll Get</h4>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Complete Bicep infrastructure templates using AVM modules</li>
                 <li>GitHub Actions and/or Azure DevOps CI/CD pipelines</li>
