@@ -1,0 +1,133 @@
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      template_file_path:
+        description: "path to template file"
+        type: string
+        required: true
+      continue_on_failed_tests:
+        description: "silence errors from testing and continue pipeline"
+        type: boolean
+        required: false
+        default: false
+      skip_tests:
+        description: "arm-ttk tests to skip, e.g. 'Template Should Not Contain Blank'"
+        type: string
+        required: false
+        default: "'apiVersions Should Be Recent','Template Should Not Contain Blanks'"
+      test_trigger:
+        description: "github event that will trigger tests to run, e.g. pull request"
+        type: string
+        required: true
+      mode:
+        description: "the contextual mode of the build, e.g. whether it is part of the initial build or ongoing operations"
+        type: string
+        required: false
+        default: build
+
+env:
+  build_folder: build
+  test_result_folder: results
+
+jobs:
+  run_build:
+    runs-on: [self-hosted, dtasegitrunner01]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.3.0
+
+      - name: Build Bicep into ARM
+        env:
+          BUILDFOLDERPATH: ${{ runner.temp }}/${{ env.build_folder }}
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          mkdir '${{ env.BUILDFOLDERPATH }}'
+          az bicep build --file ${{ inputs.template_file_path }} --outdir '${{ env.BUILDFOLDERPATH }}'
+          # copy parameter files to build folder if operations deployment
+          if ("${{ inputs.mode }}" -eq "operations"){
+            $files = Get-ChildItem "${{ inputs.template_file_path }}".Substring(0,"${{ inputs.template_file_path }}".LastIndexOf('/')) | Where-Object {$_.Name -like "*.parameters.json"}
+              foreach ($file in $files){
+                Copy-Item -Path $file.FullName -Destination '${{ env.BUILDFOLDERPATH }}'
+              }
+          }
+        shell: pwsh
+
+      - name: Run Tests
+        if: ${{ inputs.test_trigger == 'pull_request' }}
+        env:
+          SKIPTESTS: "${{ inputs.skip_tests }}"
+          BUILDFOLDERPATH: ${{ runner.temp }}/${{ env.build_folder }}
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          # Download and import arm-ttk and pester modules
+          wget https://aka.ms/arm-ttk-latest
+          Rename-Item -Path arm-ttk-latest -NewName arm-ttk-latest.zip
+          Expand-Archive -Path arm-ttk-latest.zip
+          Import-Module ./arm-ttk-latest/arm-ttk/arm-ttk.psd1
+          Install-Module Pester -AllowClobber -RequiredVersion 4.10.1 -Force -SkipPublisherCheck -AcceptLicense
+          # Create test files
+          mkdir ${{ env.TESTFOLDERPATH }}
+          $templateFile = Get-Item "${{ inputs.template_file_path }}"
+          $armTemplate = "${{ env.BUILDFOLDERPATH }}/" + $templateFile.Name.replace('.bicep', '.json')
+          New-Item -Path ${{ env.BUILDFOLDERPATH }}/armttk.tests.ps1 -Value ('param ($exclusions = "");Test-AzTemplate -TemplatePath ' + $armTemplate + ' -Skip $exclusions -Pester') -Force
+          az bicep build --file ${{ inputs.template_file_path }} --outdir '${{ env.BUILDFOLDERPATH }}'
+          # Run tests
+          if ("${{ env.SKIPTESTS }}" -ne "none") {
+            $results = Invoke-Pester -Script @{Path="${{ env.BUILDFOLDERPATH }}/armttk.tests.ps1"; Parameters= @{exclusions = ${{ env.SKIPTESTS }}}} -OutputFormat NUnitXml -OutputFile ${{ env.TESTFOLDERPATH }}/TEST-armttk.xml -PassThru
+          }
+          else{
+            $results = Invoke-Pester -Script @{Path="${{ env.BUILDFOLDERPATH }}/armttk.tests.ps1"} -OutputFormat NUnitXml -OutputFile ${{ env.TESTFOLDERPATH }}/TEST-armttk.xml -PassThru
+          }
+          if ("${{ inputs.continue_on_failed_tests }}" -eq "false") {
+            if ($results.TestResult.Result -contains "Failed") {
+              Write-Error -Message "Test Failed"
+            }
+          }
+        shell: pwsh
+
+      - name: Generate Test results
+        if: ${{ inputs.test_trigger == 'pull_request' }}
+        env:
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          $nunitResults = [xml] (Get-Content ${{ env.TESTFOLDERPATH }}/*-armttk.xml)
+          $markdown = ''
+          $markdown += "| Test | Test Case | Result |"
+          $markdown += "`n |:-------- | :-------- | :----- |"
+          $testCount = 0
+          foreach ($test in $nunitResults.'test-results'.'test-suite'.results.'test-suite'.results.'test-suite'.results.'test-suite')
+          {
+            foreach ($testcase in $test.results.'test-case')
+            {
+              $testNumber = $testCount += 1
+              $testDesc = $testcase.description
+              $result = $testcase.result
+              if ($result -eq 'Success') {
+                  $result = ':white_check_mark:'
+              } else {
+                  $result = ':x:'
+              }
+              $markdown += "`n | $testNumber | $testDesc | $result |"
+            }
+          }
+          Set-Content -Path ${{ env.TESTFOLDERPATH }}/test-results.md -Value $markdown
+          Get-Content ${{ env.TESTFOLDERPATH }}/test-results.md > $GITHUB_STEP_SUMMARY
+        shell: pwsh
+
+      - name: Publish Test Results
+        if: ${{ inputs.test_trigger == 'pull_request' }}
+        env:
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          echo "### Hello world1! :rocket:" > $GITHUB_STEP_SUMMARY
+          cat ${{ env.TESTFOLDERPATH }}/test-results.md > $GITHUB_STEP_SUMMARY
+
+      - name: Publish Pipeline Artifact
+        env:
+          BUILDFOLDERPATH: ${{ runner.temp }}/${{ env.build_folder }}
+        uses: actions/upload-artifact@v3.1.1
+        with:
+          name: deploy
+          path: "${{ env.BUILDFOLDERPATH }}"

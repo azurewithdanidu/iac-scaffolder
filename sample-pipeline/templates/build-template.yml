@@ -1,0 +1,107 @@
+parameters:
+  - name: templateFilePath # Path to Template File
+    type: string
+  - name: parameterFilePath # Path to Parameter File
+    type: string
+    default: ""
+  - name: continueOnFailedTests # Silence errors from testing and continue pipeline
+    type: boolean
+    default: false
+  - name: skipTests # arm-ttk tests to skip, e.g. "Template Should Not Contain Blank"
+    type: string
+    default: "none"
+  - name: testCondition # condition to run tests
+    type: string
+  - name: mode # The contextual mode of the build. E.g. Whether it is part of the initial build or ongoing operations
+    type: string
+    default: build
+    values:
+      - build
+      - operations
+  - name: svcConnection # Service Connection
+    type: string
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        pool:
+          vmimage: ubuntu-latest
+        variables:
+          buildFolder: "$(Build.ArtifactStagingDirectory)/build"
+          testResultFolder: $(Build.ArtifactStagingDirectory)/results
+
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Build Bicep into ARM
+            inputs:
+              azureSubscription: ${{ parameters.svcConnection }}
+              scriptLocation: "inlineScript"
+              scriptType: "pscore"
+              inlineScript: |
+                mkdir '$(buildFolder)'
+                az bicep build --file ${{ parameters.templateFilePath }} --outdir '$(buildFolder)'
+
+                if ("${{ parameters.parameterFilePath}}" -like "*.bicepparam" -and "${{ parameters.mode }}" -ne "operations"){
+                  bicep build-params "${{ parameters.parameterFilePath}}" --outfile $(buildFolder)/azuredeploy.parameters.json
+                }
+                elseif("${{ parameters.mode }}" -ne "operations"){
+                  Copy-Item -Path "${{ parameters.parameterFilePath}}" -Destination '$(buildFolder)'
+                }
+                # copy parameter files to build folder if operations deployment
+                if ("${{ parameters.mode }}" -eq "operations"){
+                  $files = Get-ChildItem "${{ parameters.templateFilePath }}".Substring(0,"${{ parameters.templateFilePath }}".LastIndexOf('/')) -Recurse | Where-Object {$_.Name -like "*.parameters.json" -or $_.Name -like "*.bicepparam"}
+                    foreach ($file in $files){
+                      if ($file.FullName -like "*.bicepparam"){
+                        bicep build-params $file.FullName --outfile $file.FullName.Replace(".bicepparam", ".parameters.json")
+                        Copy-Item -Path $file.FullName.Replace(".bicepparam", ".parameters.json") -Destination '$(buildFolder)'
+                      }
+                      elseif($file.FullName -like "*.parameters.json"){
+                        Copy-Item -Path $file.FullName -Destination '$(buildFolder)'
+                      }
+                    }
+                }
+
+          - pwsh: |
+              # Download and import arm-ttk and pester modules
+              wget https://aka.ms/arm-ttk-latest
+              Rename-Item -Path arm-ttk-latest -NewName arm-ttk-latest.zip
+              Expand-Archive -Path arm-ttk-latest.zip
+              Import-Module ./arm-ttk-latest/arm-ttk/arm-ttk.psd1
+              Install-Module Pester -AllowClobber -RequiredVersion 4.10.1 -Force -SkipPublisherCheck -AcceptLicense
+              # Create test files
+              mkdir $(testResultFolder)
+              $templateFile = Get-Item "${{ parameters.templateFilePath }}"
+              $armTemplate = "$(buildFolder)/" + $templateFile.Name.replace('.bicep', '.json')
+              New-Item -Path $(buildFolder)/armttk.tests.ps1 -Value ('param ($exclusions = "");Test-AzTemplate -TemplatePath ' + $armTemplate + ' -Skip $exclusions -Pester') -Force
+              # Run tests
+              if ("${{ parameters.skipTests }}" -ne "none") {
+                $results = Invoke-Pester -Script @{Path="$(buildFolder)/armttk.tests.ps1"; Parameters= @{exclusions = ${{ parameters.skipTests }}}} -OutputFormat NUnitXml -OutputFile $(testResultFolder)/TEST-armttk.xml -PassThru
+              }
+              else{
+                $results = Invoke-Pester -Script @{Path="$(buildFolder)/armttk.tests.ps1"} -OutputFormat NUnitXml -OutputFile $(testResultFolder)/TEST-armttk.xml -PassThru
+              }
+              if ("${{ parameters.continueOnFailedTests }}" -eq "false") {
+                if ($results.TestResult.Result -contains "Failed") {
+                  Write-Error -Message "Test Failed"
+                }
+              }
+            displayName: Run Tests
+            condition: ${{ parameters.testCondition }}
+            env:
+              skipTests: ${{parameters.skipTests}}
+
+          - task: PublishTestResults@2
+            displayName: Publish Test Results
+            condition: ${{ parameters.testCondition }}
+            inputs:
+              testResultsFormat: NUnit
+              testResultsFiles: "$(testResultFolder)/*-armttk.xml"
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Pipeline Artifact
+            inputs:
+              path: $(buildFolder)
+              artifact: deploy
