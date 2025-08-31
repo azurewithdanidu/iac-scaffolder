@@ -8,10 +8,18 @@ const nextConfig = {
   },
   // Font optimization for better loading
   optimizeFonts: true,
+  // Azure App Service specific configuration
+  experimental: {
+    serverComponentsExternalPackages: [],
+  },
   // Build cache for faster Azure builds
   generateBuildId: async () => {
     // Use environment variable or fallback to timestamp
     return process.env.BUILD_ID || `build-${Date.now()}`
+  },
+  // Production configuration for Azure
+  env: {
+    PORT: process.env.PORT || '8080',
   },
   // Removed 'export' output for App Service - we want dynamic Next.js
   // output: 'export',
