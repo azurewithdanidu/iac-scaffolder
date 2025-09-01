@@ -1,0 +1,221 @@
+# Azure Resource Manager Deployment Template
+# This template handles deployment of ARM/Bicep templates to various Azure scopes
+# Supports subscription, tenant, management group, and resource group deployments
+# Includes optional what-if preview functionality
+
+parameters:
+  # === Pipeline Configuration ===
+  - name: stage # Name of the deployment stage
+    type: string
+  - name: dependsOn # Previous stages this stage depends on
+    type: string
+  - name: condition # Conditions under which this stage should run
+    type: string
+  - name: adoEnvironment # Azure DevOps Environment for deployment approvals and gates
+    type: string
+  - name: poolName # Agent pool name for running deployment jobs
+    type: string
+    default: "MVic1-Prd-adoagents-vmss"
+
+  # === Azure Configuration ===
+  - name: location # Azure region where deployment metadata will be stored
+    type: string
+    default: ""
+  - name: subscriptionId # Target Azure subscription ID for deployment
+    type: string
+    default: ""
+  - name: svcConnection # Azure service connection name for authentication
+    type: string
+
+  # === Template Configuration ===
+  - name: templateFileName # Name of the ARM template file (converted from Bicep)
+    type: string
+    default: main.json
+  - name: deploymentName # Unique name for the ARM deployment operation
+    type: string
+  - name: parameterFilePath # Path to ARM template parameters file
+    type: string
+    default: ""
+  - name: inlineParams # Additional parameters as string (overrides parameter file values)
+    type: string
+    default: ""
+
+  # === Deployment Options ===
+  - name: previewChanges # Enable what-if preview before actual deployment
+    type: boolean
+  - name: azDeploymentType # Target scope for Azure deployment
+    type: string
+    default: subscription
+    values:
+      - subscription    # Deploy to subscription scope
+      - tenant         # Deploy to tenant scope  
+      - managementGroup # Deploy to management group scope
+      - resourceGroup  # Deploy to resource group scope
+
+  # === Scope-Specific Parameters ===
+  - name: managementGroupId # Management Group ID (required for managementGroup deployments)
+    type: string
+    default: ""
+  - name: resourceGroupName # Resource Group name (required for resourceGroup deployments)
+    type: string
+    default: ""
+
+stages:
+  # === WHAT-IF PREVIEW STAGE ===
+  # This stage runs conditionally when previewChanges is enabled
+  # Shows what resources will be created/modified/deleted without making actual changes
+  - ${{ if eq(parameters.previewChanges, true) }}: 
+      - stage: Preview_${{ parameters.stage }}
+        displayName: 'What-If Preview: ${{ parameters.stage }}'
+        dependsOn: ${{ parameters.dependsOn }}
+        condition: and( ${{ parameters.condition }}, ${{ parameters.previewChanges}} )
+        jobs:
+          - job: Preview_${{ parameters.stage }}
+            displayName: 'Preview Changes'
+            pool:
+              name: ${{ parameters.poolName }}
+            steps:
+              # Get the source code for any additional scripts or files
+              - checkout: self
+
+              # Download the built ARM template artifacts from previous stage
+              - download: current
+                artifact: deploy
+
+              # Run Azure CLI what-if command to preview changes
+              - task: AzureCLI@2
+                displayName: What-If Deploy to Azure
+                inputs:
+                  azureSubscription: ${{ parameters.svcConnection }}
+                  scriptLocation: "inlineScript"
+                  scriptType: "pscore"
+                  inlineScript: |
+                    $ErrorActionPreference = 'stop'
+                    $paramFile = Get-ChildItem $(Pipeline.Workspace)/deploy | Where-Object {$_.Name -like "*.parameters.*"}
+                    $template = "${{ parameters.templateFileName }}".Replace(".bicep",".json")
+
+                    Write-Host "template: $template, param: $paramFile, deploymenttype: ${{ parameters.azDeploymentType }}"
+                    if ('${{ parameters.azDeploymentType }}' -eq "subscription" ){
+                      az account set --subscription ${{ parameters.subscriptionId}}
+                      az deployment sub what-if `
+                        --name '${{ parameters.deploymentName }}' `
+                        --location '${{ parameters.location }}' `
+                        --subscription '${{ parameters.subscriptionId }}' `
+                        --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                    }
+                    if ('${{ parameters.azDeploymentType }}' -eq "tenant" ){
+                      az deployment tenant what-if `
+                        --name '${{ parameters.deploymentName }}' `
+                        --location '${{ parameters.location }}' `
+                        --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                    }
+                    if ('${{ parameters.azDeploymentType }}' -eq "managementGroup" ){
+                    az deployment mg what-if `
+                      --name '${{ parameters.deploymentName }}' `
+                      --location '${{ parameters.location }}' `
+                      --management-group-id '${{ parameters.managementGroupId }}' `
+                      --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                    }
+                    if ('${{ parameters.azDeploymentType }}' -eq "resourceGroup" ){
+                      az account set --subscription '${{ parameters.subscriptionId }}'
+                      az deployment group what-if `
+                        --name '${{ parameters.deploymentName }}' `
+                        --resource-group '${{ parameters.resourceGroupName }}' `
+                        --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                    }
+
+  # === MAIN DEPLOYMENT STAGE ===
+  # This stage performs the actual deployment to Azure
+  # Depends on the preview stage if what-if preview is enabled
+  - stage: ${{ parameters.stage }}
+    displayName: 'Deploy: ${{ parameters.stage }}'
+    dependsOn:
+      - ${{ parameters.dependsOn }}
+      - ${{ if eq(parameters.previewChanges, true) }}: # Wait for preview stage if enabled
+          - Preview_${{ parameters.stage }}
+    condition: ${{ parameters.condition }}
+    variables:
+      # Build parameter arguments dynamically based on what's provided
+      - name: paramArgs 
+        ${{ if ne(parameters.parameterFilePath, '') }}:
+          value: "--parameters '@${{ parameters.parameterFilePath }}' ${{ parameters.inlineParams}}"
+        ${{ elseif ne(parameters.inlineParams, '') }}:
+          value: "--parameters ${{ parameters.inlineParams}}"
+        ${{ else }}:
+          value: ""
+    jobs:
+      # Use deployment job for environment gates and approvals
+      - deployment: ${{ parameters.stage }}
+        displayName: 'Deploy ARM Template'
+        pool:
+          name: ${{ parameters.poolName }}
+        environment: ${{ parameters.adoEnvironment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Get the source code for any additional scripts or files
+                - checkout: self
+
+                # Download the built ARM template artifacts from build stage
+                - download: current
+                  artifact: deploy
+
+                # Execute the actual deployment to Azure
+                - task: AzureCLI@2
+                  displayName: Deploy to Azure
+                  inputs:
+                    azureSubscription: ${{ parameters.svcConnection }}
+                    scriptType: "pscore"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      # Ensure script fails on any error
+                      $ErrorActionPreference = 'stop'
+                      
+                      # Find the parameter file from downloaded artifacts
+                      $paramFile = Get-ChildItem $(Pipeline.Workspace)/deploy | Where-Object {$_.Name -like "*.parameters.*"}
+                      
+                      # Convert bicep filename to json if needed
+                      $template = "${{ parameters.templateFileName }}".Replace(".bicep",".json")
+
+                      Write-Host "Deploying template: $template with parameters: $paramFile to scope: ${{ parameters.azDeploymentType }}"
+
+                      # Deploy to Subscription scope
+                      if ('${{ parameters.azDeploymentType }}' -eq "subscription" ){
+                        Write-Host "Deploying to subscription scope..."
+                        az account set --subscription ${{ parameters.subscriptionId}}
+                        az deployment sub create `
+                          --name '${{ parameters.deploymentName }}' `
+                          --location '${{ parameters.location }}' `
+                          --subscription '${{ parameters.subscriptionId }}' `
+                          --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                      }
+                      
+                      # Deploy to Tenant scope
+                      if ('${{ parameters.azDeploymentType }}' -eq "tenant" ){
+                        Write-Host "Deploying to tenant scope..."
+                        az deployment tenant create `
+                          --name '${{ parameters.deploymentName }}' `
+                          --location '${{ parameters.location }}' `
+                          --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                      }
+                      
+                      # Deploy to Management Group scope
+                      if ('${{ parameters.azDeploymentType }}' -eq "managementGroup" ){
+                        Write-Host "Deploying to management group scope..."
+                        az deployment mg create `
+                          --name '${{ parameters.deploymentName }}' `
+                          --location '${{ parameters.location }}' `
+                          --management-group-id '${{ parameters.managementGroupId }}' `
+                          --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                      }
+                      
+                      # Deploy to Resource Group scope
+                      if ('${{ parameters.azDeploymentType }}' -eq "resourceGroup" ){
+                        Write-Host "Deploying to resource group scope..."
+                        az account set --subscription '${{ parameters.subscriptionId }}'
+                        az deployment group create `
+                          --name '${{ parameters.deploymentName }}' `
+                          --resource-group '${{ parameters.resourceGroupName }}' `
+                          --template-file $(Pipeline.Workspace)/deploy/$template --parameters $paramFile
+                      }

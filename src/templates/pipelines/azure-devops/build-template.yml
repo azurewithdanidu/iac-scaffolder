@@ -1,0 +1,125 @@
+parameters:
+  - name: templateFilePath # Path to Template File
+    type: string
+  - name: parameterFilePath # Path to Parameter File
+    type: string
+    default: ""
+  - name: continueOnFailedTests # Silence errors from testing and continue pipeline
+    type: boolean
+    default: false
+  - name: skipTests # arm-ttk tests to skip, e.g. "Template Should Not Contain Blank"
+    type: string
+    default: "none"
+  - name: testCondition # condition to run tests
+    type: string
+    default: eq(variables['Build.Reason'], 'PullRequest')
+  - name: svcConnection # Service Connection
+    type: string
+  - name: poolName # Agent pool name
+    type: string
+    default: "ubuntu-latest"
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        pool: 
+          name: ${{ parameters.poolName }}
+        variables:
+          buildFolder: "$(Build.ArtifactStagingDirectory)/build"
+          testResultFolder: $(Build.ArtifactStagingDirectory)/results
+
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Build Bicep into ARM
+            inputs:
+              azureSubscription: ${{ parameters.svcConnection }}
+              scriptLocation: "inlineScript"
+              scriptType: "pscore"
+              inlineScript: |
+                mkdir '$(buildFolder)'
+                az bicep build --file ${{ parameters.templateFilePath }} --outdir '$(buildFolder)'
+
+                if ("${{ parameters.parameterFilePath}}" -like "*.bicepparam"){
+                  bicep build-params "${{ parameters.parameterFilePath}}" --outfile $(buildFolder)/parameter-file.json
+                }
+                else{
+                  Copy-Item -Path "${{ parameters.parameterFilePath}}" -Destination '$(buildFolder)'
+                }
+
+          - task: PowerShell@2
+            displayName: Run ARM Template Tests
+            condition: ${{ parameters.testCondition }}
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Install ARM-TTK from PowerShell Gallery (much simpler)
+                Install-Module -Name ARM.Template.Toolkit -Force -Scope CurrentUser
+                
+                # Create test result folder
+                New-Item -ItemType Directory -Path "$(testResultFolder)" -Force
+                
+                # Get the built ARM template
+                $templateFile = Get-Item "${{ parameters.templateFilePath }}"
+                $armTemplate = "$(buildFolder)/" + $templateFile.Name.replace('.bicep', '.json')
+                
+                # Run ARM-TTK tests
+                $testResults = Test-AzTemplate -TemplatePath $armTemplate
+                
+                # Filter out skipped tests if specified
+                if ("${{ parameters.skipTests }}" -ne "none") {
+                  $skipList = "${{ parameters.skipTests }}".Split(',').Trim()
+                  $testResults = $testResults | Where-Object { $_.Name -notin $skipList }
+                }
+                
+                # Convert results to NUnit XML format
+                $xml = @"
+                <?xml version="1.0" encoding="utf-8"?>
+                <test-results>
+                  <test-suite name="ARM-TTK Tests">
+                "@
+                
+                foreach ($result in $testResults) {
+                  $status = if ($result.Passed) { "Success" } else { "Failure" }
+                  $xml += @"
+                    <test-case name="$($result.Name)" executed="True" result="$status">
+                "@
+                  if (!$result.Passed) {
+                    $xml += @"
+                      <failure>
+                        <message>$($result.Errors -join '; ')</message>
+                      </failure>
+                "@
+                  }
+                  $xml += "    </test-case>"
+                }
+                
+                $xml += @"
+                  </test-suite>
+                </test-results>
+                "@
+                
+                # Save test results
+                $xml | Out-File -FilePath "$(testResultFolder)/TEST-armttk.xml" -Encoding UTF8
+                
+                # Check for failures and exit if needed
+                if (!${{ parameters.continueOnFailedTests }} -and ($testResults | Where-Object { !$_.Passed })) {
+                  Write-Error "ARM-TTK tests failed"
+                  exit 1
+                }
+              pwsh: true
+
+          - task: PublishTestResults@2
+            displayName: Publish Test Results
+            # condition: ${{ parameters.testCondition }}
+            inputs:
+              testResultsFormat: NUnit
+              testResultsFiles: "$(testResultFolder)/*-armttk.xml"
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Pipeline Artifact
+            inputs:
+              path: $(buildFolder)
+              artifact: deploy

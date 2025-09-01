@@ -1,0 +1,240 @@
+# Azure Resource Manager Template Build Workflow
+# This reusable GitHub Actions workflow builds and tests ARM/Bicep templates
+# Converts Bicep templates to ARM JSON and runs ARM-TTK validation tests
+# Supports both parameter files (.json) and Bicep parameter files (.bicepparam)
+
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      # === Template Configuration ===
+      template_file_path:
+        description: "Path to the Bicep template file to build"
+        type: string
+        required: true
+      parameter_file_path:
+        description: "Path to the ARM template parameters file (.json or .bicepparam)"
+        type: string
+        required: false
+        default: ""
+
+      # === Testing Configuration ===
+      continue_on_failed_tests:
+        description: "Continue pipeline execution even if ARM-TTK tests fail"
+        type: boolean
+        required: false
+        default: false
+      skip_tests:
+        description: "Comma-separated list of ARM-TTK tests to skip (e.g. 'Template Should Not Contain Blank')"
+        type: string
+        required: false
+        default: none
+      test_trigger:
+        description: "GitHub event that triggers test execution (e.g. 'pull_request')"
+        type: string
+        required: true
+
+      # === Azure Authentication ===
+      oidc_app_reg_client_id:
+        description: "Azure App Registration Client ID for OIDC authentication (workload identity federation)"
+        type: string
+        required: true
+      azure_tenant_id:
+        description: "Azure AD tenant/directory ID for authentication"
+        type: string
+        required: true
+
+      # === GitHub Configuration ===
+      environment:
+        description: "GitHub environment name for build jobs"
+        type: string
+        required: false
+        default: build
+
+# Global environment variables for consistent folder paths
+env:
+  build_folder: build          # Folder for built ARM templates
+  test_result_folder: results  # Folder for test results and reports
+
+jobs:
+  # === BUILD AND TEST JOB ===
+  # This job builds Bicep templates to ARM JSON and runs ARM-TTK validation tests
+  run_build:
+    name: "Build and Test ARM Templates"
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      # Get the source code including Bicep templates
+      - name: Checkout
+        uses: actions/checkout@v3.3.0
+
+      # Authenticate to Azure for Bicep CLI operations
+      - name: Login to Azure
+        uses: azure/login@v1.4.6
+        with:
+          client-id: ${{ inputs.oidc_app_reg_client_id }}
+          tenant-id: ${{ inputs.azure_tenant_id }}
+          allow-no-subscriptions: true
+
+      # Build Bicep templates to ARM JSON and handle parameter files
+      - name: Build Bicep into ARM
+        env:
+          BUILDFOLDERPATH: ${{ runner.temp }}/${{ env.build_folder }}
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          # Create build directories
+          mkdir '${{ env.BUILDFOLDERPATH }}'
+          
+          # Build Bicep template to ARM JSON
+          az bicep build --file ${{ inputs.template_file_path }} --outdir '${{ env.BUILDFOLDERPATH }}'
+          
+          # Handle parameter files if provided
+          if [ "${{ inputs.parameter_file_path }}" != "" ]; then
+            if [[ "${{ inputs.parameter_file_path }}" == *.bicepparam ]]; then
+              # Build Bicep parameter file to JSON
+              echo "Building Bicep parameter file to JSON..."
+              bicep build-params "${{ inputs.parameter_file_path }}" --outfile ${{ env.BUILDFOLDERPATH }}/parameter-file.json
+            elif [[ "${{ inputs.parameter_file_path }}" == *.json ]]; then
+              # Copy JSON parameter file
+              echo "Copying JSON parameter file..."
+              cp "${{ inputs.parameter_file_path }}" '${{ env.BUILDFOLDERPATH }}/'
+            fi
+          fi
+        shell: bash
+
+      # Run ARM Template Toolkit tests for validation
+      - name: Run ARM-TTK Tests
+        if: ${{ inputs.test_trigger == 'pull_request' }}
+        env:
+          BUILDFOLDERPATH: ${{ runner.temp }}/${{ env.build_folder }}
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          # Install ARM-TTK from PowerShell Gallery (much simpler than manual download)
+          Install-Module -Name ARM.Template.Toolkit -Force -Scope CurrentUser
+          
+          # Create test result folder
+          New-Item -ItemType Directory -Path "${{ env.TESTFOLDERPATH }}" -Force
+          
+          # Get the built ARM template
+          $templateFile = Get-Item "${{ inputs.template_file_path }}"
+          $armTemplate = "${{ env.BUILDFOLDERPATH }}/" + $templateFile.Name.replace('.bicep', '.json')
+          
+          Write-Host "Running ARM-TTK tests on: $armTemplate"
+          
+          # Run ARM-TTK tests
+          $testResults = Test-AzTemplate -TemplatePath $armTemplate
+          
+          # Filter out skipped tests if specified
+          if ("${{ inputs.skip_tests }}" -ne "none") {
+            $skipList = "${{ inputs.skip_tests }}".Split(',').Trim()
+            $testResults = $testResults | Where-Object { $_.Name -notin $skipList }
+            Write-Host "Skipping tests: $($skipList -join ', ')"
+          }
+          
+          # Convert results to NUnit XML format for GitHub Actions
+          $xml = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <test-results>
+            <test-suite name="ARM-TTK Tests">
+          "@
+          
+          foreach ($result in $testResults) {
+            $status = if ($result.Passed) { "Success" } else { "Failure" }
+            $xml += @"
+              <test-case name="$($result.Name)" executed="True" result="$status">
+          "@
+            if (!$result.Passed) {
+              $xml += @"
+                <failure>
+                  <message>$($result.Errors -join '; ')</message>
+                </failure>
+          "@
+            }
+            $xml += "      </test-case>"
+          }
+          
+          $xml += @"
+            </test-suite>
+          </test-results>
+          "@
+          
+          # Save test results
+          $xml | Out-File -FilePath "${{ env.TESTFOLDERPATH }}/TEST-armttk.xml" -Encoding UTF8
+          
+          # Check for failures and set environment variable
+          $failedTests = $testResults | Where-Object { !$_.Passed }
+          if ($failedTests.Count -gt 0) {
+            Write-Host "Found $($failedTests.Count) failed tests"
+            if ("${{ inputs.continue_on_failed_tests }}" -eq "false") {
+              echo "TESTRESULTS=FAIL" >> $env:GITHUB_ENV
+            }
+          } else {
+            Write-Host "All tests passed!"
+            echo "TESTRESULTS=PASS" >> $env:GITHUB_ENV
+          }
+        shell: pwsh
+
+      # Generate markdown test results for GitHub summary
+      - name: Generate Test Results Summary
+        if: ${{ inputs.test_trigger == 'pull_request' }}
+        env:
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          # Parse NUnit XML test results and create markdown summary
+          $nunitResults = [xml] (Get-Content ${{ env.TESTFOLDERPATH }}/TEST-armttk.xml)
+          $markdown = ''
+          $markdown += "| Test | Test Case | Result |"
+          $markdown += "`n |:-------- | :-------- | :----- |"
+          $testCount = 0
+          
+          # Handle the simplified XML structure from ARM-TTK
+          foreach ($testcase in $nunitResults.'test-results'.'test-suite'.'test-case')
+          {
+            $testNumber = $testCount += 1
+            $testDesc = $testcase.name
+            $result = $testcase.result
+            if ($result -eq 'Success') {
+                $result = ':white_check_mark:'
+            } else {
+                $result = ':x:'
+            }
+            $markdown += "`n | $testNumber | $testDesc | $result |"
+          }
+          
+          # Save markdown results
+          Set-Content -Path ${{ env.TESTFOLDERPATH }}/test-results.md -Value $markdown
+          
+          # Add to GitHub step summary
+          "### ARM-TTK Test Results :test_tube:" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY
+          Get-Content ${{ env.TESTFOLDERPATH }}/test-results.md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        shell: pwsh
+
+      # Publish test results and fail pipeline if tests failed
+      - name: Publish Test Results
+        if: ${{ inputs.test_trigger == 'pull_request' }}
+        env:
+          TESTFOLDERPATH: ${{ runner.temp }}/${{ env.test_result_folder }}
+        run: |
+          # Display test results in GitHub Actions summary
+          echo "### ARM-TTK Test Results :test_tube:" >> $GITHUB_STEP_SUMMARY
+          cat ${{ env.TESTFOLDERPATH }}/test-results.md >> $GITHUB_STEP_SUMMARY
+          
+          # Fail the pipeline if tests failed and continue_on_failed_tests is false
+          if [ "$TESTRESULTS" == "FAIL" ]; then
+            echo "::error::ARM-TTK tests failed! Check the test results above."
+            exit 1
+          else
+            echo "::notice::All ARM-TTK tests passed successfully!"
+          fi
+        shell: bash
+
+      # Upload built ARM templates as artifacts for deployment
+      - name: Publish Pipeline Artifact
+        env:
+          BUILDFOLDERPATH: ${{ runner.temp }}/${{ env.build_folder }}
+        uses: actions/upload-artifact@v3.1.1
+        with:
+          name: deploy
+          path: "${{ env.BUILDFOLDERPATH }}"

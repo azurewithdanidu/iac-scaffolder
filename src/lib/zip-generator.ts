@@ -1,6 +1,5 @@
 import JSZip from 'jszip'
 import { FormData } from '@/types/form'
-import { generateTemplates } from './simple-templates'
 
 export interface FileStructure {
   [path: string]: string | FileStructure
@@ -9,15 +8,43 @@ export interface FileStructure {
 export class ZipGenerator {
   static async generateZip(formData: FormData): Promise<Blob> {
     const zip = new JSZip()
-    const templates = generateTemplates(formData)
+    
+    // Get all templates from the server-side API
+    const allTemplates = await this.fetchTemplatesFromAPI(formData)
     
     // Create folder structure
-    const structure = this.createFileStructure(formData, templates)
+    const structure = this.createFileStructure(formData, allTemplates)
     
     // Add files to zip
     this.addFilesToZip(zip, structure)
     
     return await zip.generateAsync({ type: 'blob' })
+  }
+
+  /**
+   * Fetch templates from the server-side API
+   */
+  static async fetchTemplatesFromAPI(formData: FormData): Promise<Record<string, string>> {
+    try {
+      const response = await fetch('/api/templates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Failed to generate templates: ${errorData.error}`)
+      }
+
+      const result = await response.json()
+      return result.templates
+    } catch (error) {
+      console.error('Error fetching templates:', error)
+      throw error
+    }
   }
   
   static createFileStructure(formData: FormData, templates: Record<string, string>): FileStructure {

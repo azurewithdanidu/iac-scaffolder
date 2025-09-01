@@ -20,7 +20,8 @@ const steps = [
   { id: 4, title: 'Tags', description: 'Configure resource tags' },
   { id: 5, title: 'Templates', description: 'Select templates to include' },
   { id: 6, title: 'Modules', description: 'Select Azure modules to include' },
-  { id: 7, title: 'Review', description: 'Review configuration and download' }
+  { id: 7, title: 'Pipeline', description: 'Choose your CI/CD pipeline provider' },
+  { id: 8, title: 'Review', description: 'Review configuration and download' }
 ]
 
 export default function WizardPage() {
@@ -130,7 +131,7 @@ export default function WizardPage() {
               Step {currentStep} of {steps.length}
             </div>
           </div>
-          <Progress value={progress} className="w-full" />
+          <Progress value={progress} className="w-full transition-all duration-500 ease-out" />
         </div>
         
         <div className="grid lg:grid-cols-4 gap-8">
@@ -143,12 +144,12 @@ export default function WizardPage() {
                 {steps.map((step) => (
                   <div
                     key={step.id}
-                    className={`p-3 rounded-lg cursor-pointer transition-colors $\{
+                    className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-105 hover:shadow-md ${
                       step.id === currentStep
-                        ? 'bg-primary text-primary-foreground'
+                        ? 'bg-primary text-primary-foreground shadow-lg scale-105'
                         : step.id < currentStep
-                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-800'
+                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                     onClick={() => step.id <= currentStep && setCurrentStep(step.id)}
                   >
@@ -161,14 +162,16 @@ export default function WizardPage() {
           </div>
           
           <div className="lg:col-span-3">
-            <Card className="min-h-[500px]">
+            <Card className="min-h-[500px] transition-all duration-300 ease-in-out">
               <CardHeader>
-                <CardTitle>{steps[currentStep - 1].title}</CardTitle>
-                <CardDescription>{steps[currentStep - 1].description}</CardDescription>
+                <CardTitle className="transition-all duration-200">{steps[currentStep - 1].title}</CardTitle>
+                <CardDescription className="transition-all duration-200">{steps[currentStep - 1].description}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Step content will be rendered here */}
-                {renderStepContent(currentStep, formData, setFormData, errors)}
+                <div className="transition-all duration-300 ease-in-out">
+                  {renderStepContent(currentStep, formData, setFormData, errors)}
+                </div>
               </CardContent>
             </Card>
             
@@ -177,7 +180,7 @@ export default function WizardPage() {
                 variant="outline"
                 onClick={handlePrevious}
                 disabled={currentStep === 1}
-                className="flex items-center space-x-2"
+                className="flex items-center space-x-2 transition-all duration-200 hover:scale-105"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>Previous</span>
@@ -189,14 +192,14 @@ export default function WizardPage() {
                     <Button
                       variant="outline"
                       onClick={() => setShowPreview(!showPreview)}
-                      className="flex items-center space-x-2"
+                      className="flex items-center space-x-2 transition-all duration-200 hover:scale-105"
                     >
                       <Eye className="w-4 h-4" />
                       <span>{showPreview ? 'Hide' : 'Preview'}</span>
                     </Button>
                     <Button
                       onClick={handleDownload}
-                      className="flex items-center space-x-2"
+                      className="flex items-center space-x-2 transition-all duration-200 hover:scale-105 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                     >
                       <Download className="w-4 h-4" />
                       <span>Download ZIP</span>
@@ -207,7 +210,7 @@ export default function WizardPage() {
                 {currentStep < steps.length && (
                   <Button
                     onClick={handleNext}
-                    className="flex items-center space-x-2"
+                    className="flex items-center space-x-2 transition-all duration-200 hover:scale-105"
                   >
                     <span>Next</span>
                     <ChevronRight className="w-4 h-4" />
@@ -218,7 +221,11 @@ export default function WizardPage() {
           </div>
         </div>
         
-        {showPreview && renderPreview(formData)}
+        {showPreview && (
+          <div className="animate-in fade-in-0 duration-300">
+            {renderPreview(formData)}
+          </div>
+        )}
       </main>
     </div>
   )
@@ -459,6 +466,87 @@ function renderStepContent(
         )
         
       case 7:
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Choose your preferred CI/CD pipeline provider. This will generate the appropriate workflow/pipeline files.
+            </p>
+            
+            <div className="space-y-4">
+              <div className="grid gap-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <div className="font-medium">GitHub Actions</div>
+                    <div className="text-sm text-gray-500">
+                      GitHub-native CI/CD with workflow files in .github/workflows/
+                    </div>
+                  </div>
+                  <input
+                    type="radio"
+                    name="pipelineProvider"
+                    value="github-actions"
+                    checked={formData.pipelineProvider === 'github-actions'}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      pipelineProvider: e.target.value as 'github-actions' | 'azure-devops' | 'both'
+                    })}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                </div>
+                
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <div className="font-medium">Azure DevOps</div>
+                    <div className="text-sm text-gray-500">
+                      Azure DevOps Pipelines with YAML files in azure-pipelines/
+                    </div>
+                  </div>
+                  <input
+                    type="radio"
+                    name="pipelineProvider"
+                    value="azure-devops"
+                    checked={formData.pipelineProvider === 'azure-devops'}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      pipelineProvider: e.target.value as 'github-actions' | 'azure-devops' | 'both'
+                    })}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                </div>
+                
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div>
+                    <div className="font-medium">Both Providers</div>
+                    <div className="text-sm text-gray-500">
+                      Generate templates for both GitHub Actions and Azure DevOps
+                    </div>
+                  </div>
+                  <input
+                    type="radio"
+                    name="pipelineProvider"
+                    value="both"
+                    checked={formData.pipelineProvider === 'both'}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      pipelineProvider: e.target.value as 'github-actions' | 'azure-devops' | 'both'
+                    })}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Selected:</strong> {formData.pipelineProvider === 'github-actions' ? 'GitHub Actions' : 
+                                          formData.pipelineProvider === 'azure-devops' ? 'Azure DevOps' : 
+                                          'Both GitHub Actions and Azure DevOps'}
+              </p>
+            </div>
+          </div>
+        )
+        
+      case 8:
         return (
           <div className="space-y-6">
             <div>

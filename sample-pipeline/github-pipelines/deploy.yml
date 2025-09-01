@@ -1,0 +1,279 @@
+# Azure Resource Manager Deployment Workflow
+# This reusable GitHub Actions workflow handles deployment of ARM/Bicep templates to various Azure scopes
+# Supports subscription, tenant, management group, and resource group deployments
+# Includes what-if preview before actual deployment for change validation
+
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      # === GitHub Configuration ===
+      environment:
+        description: "GitHub environment name for deployment approvals and protection rules"
+        type: string
+        required: true
+
+      # === Azure Authentication ===
+      oidc_app_reg_client_id:
+        description: "Azure App Registration Client ID for OIDC authentication (workload identity federation)"
+        type: string
+        required: true
+      azure_tenant_id:
+        description: "Azure AD tenant/directory ID for authentication"
+        type: string
+        required: true
+
+      # === Azure Target Configuration ===
+      subscription_id:
+        description: "Target Azure subscription ID for deployment"
+        type: string
+        required: true
+      location:
+        description: "Azure region where deployment metadata will be stored"
+        type: string
+        required: true
+
+      # === Template Configuration ===
+      template_file_name:
+        description: "Name of the ARM template file (converted from Bicep to JSON)"
+        type: string
+        required: false
+        default: main.json
+      deployment_name:
+        description: "Unique name for the ARM deployment operation"
+        type: string
+        required: true
+      parameter_file_path:
+        description: "Path to ARM template parameters file"
+        type: string
+        required: false
+        default: ""
+      inline_params:
+        description: "Additional parameters as string (overrides parameter file values)"
+        type: string
+        required: false
+        default: ""
+
+      # === Deployment Scope Configuration ===
+      az_deployment_type:
+        description: "Target scope for Azure deployment (subscription/tenant/managementgroup/resourcegroup)"
+        type: string
+        required: false
+        default: subscription
+
+      # === Scope-Specific Parameters ===
+      management_group_id:
+        description: "Management Group ID (required for managementgroup deployments)"
+        type: string
+        required: false
+        default: ""
+      resource_group_name:
+        description: "Resource Group name (required for resourcegroup deployments)"
+        type: string
+        required: false
+        default: ""
+
+jobs: 
+  # === WHAT-IF PREVIEW JOB ===
+  # This job runs what-if analysis to preview changes before actual deployment
+  # Uses the 'build' environment to avoid requiring approval for preview
+  run_preview:
+    name: "Preview Changes"
+    runs-on: ubuntu-latest
+    environment:
+      name: build
+    steps:
+      # Generate timestamp for unique deployment names
+      - name: Set current date as environment variable
+        run: echo "current_time=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+        shell: bash
+
+      # Get the source code for any additional scripts or files
+      - name: Checkout
+        uses: actions/checkout@v3.3.0
+
+      # Download the built ARM template artifacts from previous workflow
+      - name: Download Artifact
+        uses: actions/download-artifact@v3.0.1
+        with:
+          name: deploy
+          path: ${{ runner.workspace }}/deploy
+
+      # Authenticate to Azure using OIDC (Workload Identity Federation)
+      - name: Login to Azure
+        uses: azure/login@v1.4.6
+        with:
+          client-id: ${{ inputs.oidc_app_reg_client_id }}
+          tenant-id: ${{ inputs.azure_tenant_id }}
+          allow-no-subscriptions: true
+
+      # Run what-if analysis to preview changes without making actual changes
+      - name: What-If Deploy to Azure
+        run: |
+          # Ensure script fails on any error
+          $ErrorActionPreference = 'stop'
+          
+          # Find the parameter file from downloaded artifacts
+          $paramFile = Get-ChildItem ${{ runner.workspace }}/deploy | Where-Object {$_.Name -like "*.parameters.*"}
+          
+          # Convert bicep filename to json if needed
+          $template = "${{ inputs.template_file_name }}".Replace(".bicep",".json")
+          
+          # Build parameter arguments
+          $paramArgs = ""
+          if ($paramFile) {
+            $paramArgs = "--parameters `"$paramFile`""
+          }
+          if ("${{ inputs.inline_params }}" -ne "") {
+            if ($paramArgs -ne "") {
+              $paramArgs += " ${{ inputs.inline_params }}"
+            } else {
+              $paramArgs = "--parameters ${{ inputs.inline_params }}"
+            }
+          }
+
+          Write-Host "Previewing deployment of template: $template with parameters: $paramArgs to scope: ${{ inputs.az_deployment_type }}"
+
+          # Preview deployment to Subscription scope
+          if ('${{ inputs.az_deployment_type }}' -eq "subscription" ){
+            Write-Host "Running what-if for subscription scope deployment..."
+            az account set --subscription ${{ inputs.subscription_id}}
+            az deployment sub what-if `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --location '${{ inputs.location }}' `
+              --subscription '${{ inputs.subscription_id }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+          
+          # Preview deployment to Tenant scope
+          if ('${{ inputs.az_deployment_type }}' -eq "tenant" ){
+            Write-Host "Running what-if for tenant scope deployment..."
+            az deployment tenant what-if `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --location '${{ inputs.location }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+          
+          # Preview deployment to Management Group scope
+          if ('${{ inputs.az_deployment_type }}' -eq "managementgroup" ){
+            Write-Host "Running what-if for management group scope deployment..."
+            az deployment mg what-if `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --location '${{ inputs.location }}' `
+              --management-group-id '${{ inputs.management_group_id }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+          
+          # Preview deployment to Resource Group scope
+          if ('${{ inputs.az_deployment_type }}' -eq "resourcegroup" ){
+            Write-Host "Running what-if for resource group scope deployment..."
+            az account set --subscription '${{ inputs.subscription_id }}'
+            az deployment group what-if `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --resource-group '${{ inputs.resource_group_name }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+        shell: pwsh
+
+  # === MAIN DEPLOYMENT JOB ===
+  # This job performs the actual deployment to Azure after preview approval
+  # Uses the specified environment for deployment approvals and protection rules
+  run_deploy:
+    name: "Deploy to Azure"
+    needs: [run_preview]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      # Generate timestamp for unique deployment names
+      - name: Set current date as environment variable
+        run: echo "current_time=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+        shell: bash
+        
+      # Get the source code for any additional scripts or files
+      - name: Checkout
+        uses: actions/checkout@v3.3.0
+
+      # Download the built ARM template artifacts from previous workflow
+      - name: Download Artifact
+        uses: actions/download-artifact@v3.0.1
+        with:
+          name: deploy
+          path: ${{ runner.workspace }}/deploy
+
+      # Authenticate to Azure using OIDC (Workload Identity Federation)
+      - name: Login to Azure
+        uses: azure/login@v1.4.6
+        with:
+          client-id: ${{ inputs.oidc_app_reg_client_id }}
+          tenant-id: ${{ inputs.azure_tenant_id }}
+          allow-no-subscriptions: true
+
+      # Execute the actual deployment to Azure
+      - name: Deploy to Azure
+        run: |
+          # Ensure script fails on any error
+          $ErrorActionPreference = 'stop'
+          
+          # Find the parameter file from downloaded artifacts
+          $paramFile = Get-ChildItem ${{ runner.workspace }}/deploy | Where-Object {$_.Name -like "*.parameters.*"}
+          
+          # Convert bicep filename to json if needed
+          $template = "${{ inputs.template_file_name }}".Replace(".bicep",".json")
+          
+          # Build parameter arguments
+          $paramArgs = ""
+          if ($paramFile) {
+            $paramArgs = "--parameters `"$paramFile`""
+          }
+          if ("${{ inputs.inline_params }}" -ne "") {
+            if ($paramArgs -ne "") {
+              $paramArgs += " ${{ inputs.inline_params }}"
+            } else {
+              $paramArgs = "--parameters ${{ inputs.inline_params }}"
+            }
+          }
+
+          Write-Host "Deploying template: $template with parameters: $paramArgs to scope: ${{ inputs.az_deployment_type }}"
+
+          # Deploy to Subscription scope
+          if ('${{ inputs.az_deployment_type }}' -eq "subscription" ){
+            Write-Host "Deploying to subscription scope..."
+            az account set --subscription ${{ inputs.subscription_id}}
+            az deployment sub create `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --location '${{ inputs.location }}' `
+              --subscription '${{ inputs.subscription_id }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+          
+          # Deploy to Tenant scope
+          if ('${{ inputs.az_deployment_type }}' -eq "tenant" ){
+            Write-Host "Deploying to tenant scope..."
+            az deployment tenant create `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --location '${{ inputs.location }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+          
+          # Deploy to Management Group scope
+          if ('${{ inputs.az_deployment_type }}' -eq "managementgroup" ){
+            Write-Host "Deploying to management group scope..."
+            az deployment mg create `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --location '${{ inputs.location }}' `
+              --management-group-id '${{ inputs.management_group_id }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+          
+          # Deploy to Resource Group scope
+          if ('${{ inputs.az_deployment_type }}' -eq "resourcegroup" ){
+            Write-Host "Deploying to resource group scope..."
+            az account set --subscription '${{ inputs.subscription_id }}'
+            az deployment group create `
+              --name '${{ inputs.deployment_name }}-${{ env.current_time }}' `
+              --resource-group '${{ inputs.resource_group_name }}' `
+              --template-file ${{ runner.workspace }}/deploy/$template $paramArgs
+          }
+        shell: pwsh

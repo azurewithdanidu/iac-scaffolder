@@ -585,294 +585,16 @@ output spokeVirtualNetwork object = {
 }`
 }
 
-// Pipeline templates
+// Pipeline templates - these will be populated from sample-pipeline files during ZIP generation
 export const pipelineTemplates = {
-  buildTemplate: `parameters:
-  - name: templateFilePath
-    displayName: 'Path to Bicep Template File'
-    type: string
-  - name: parameterFilePath
-    displayName: 'Path to Parameter File'
-    type: string
-    default: ""
-  - name: continueOnFailedTests
-    displayName: 'Continue on Test Failures'
-    type: boolean
-    default: false
-  - name: skipTests
-    displayName: 'ARM-TTK Tests to Skip'
-    type: string
-    default: "none"
-  - name: testCondition
-    displayName: 'Condition to Run Tests'
-    type: string
-    default: "succeeded()"
-  - name: svcConnection
-    displayName: 'Azure Service Connection'
-    type: string
-  - name: buildArtifactName
-    displayName: 'Build Artifact Name'
-    type: string
-    default: 'infrastructure-build'
+  // These will be filled from actual files during ZIP generation
+  adoBuildTemplate: '',
+  adoDeployTemplate: '',
+  githubBuildTemplate: '',
+  githubDeployTemplate: '',
 
-stages:
-  - stage: Build_Infrastructure
-    displayName: 'Build Infrastructure Templates'
-    jobs:
-      - job: BuildBicep
-        displayName: 'Build Bicep Templates'
-        pool:
-          vmImage: ubuntu-latest
-        variables:
-          buildFolder: '$(Build.ArtifactStagingDirectory)/build'
-          testResultFolder: '$(Build.ArtifactStagingDirectory)/results'
-
-        steps:
-          - checkout: self
-            displayName: 'Checkout Source Code'
-
-          - task: AzureCLI@2
-            displayName: 'Build Bicep Templates'
-            inputs:
-              azureSubscription: \${{ parameters.svcConnection }}
-              scriptLocation: 'inlineScript'
-              scriptType: 'pscore'
-              inlineScript: |
-                Write-Host "Creating build directory..."
-                New-Item -ItemType Directory -Path '$(buildFolder)' -Force
-                
-                Write-Host "Building main Bicep template..."
-                az bicep build --file \${{ parameters.templateFilePath }} --outdir '$(buildFolder)'
-                
-                # Handle parameter files
-                if ("\${{ parameters.parameterFilePath }}" -ne "") {
-                  if ("\${{ parameters.parameterFilePath }}" -like "*.bicepparam") {
-                    Write-Host "Building Bicep parameter file..."
-                    bicep build-params "\${{ parameters.parameterFilePath }}" --outfile '$(buildFolder)/parameters.json'
-                  } else {
-                    Write-Host "Copying JSON parameter file..."
-                    Copy-Item -Path "\${{ parameters.parameterFilePath }}" -Destination '$(buildFolder)'
-                  }
-                }
-                
-                # Build any additional Bicep modules
-                Get-ChildItem -Path "infra/bicep/modules" -Filter "*.bicep" -Recurse | ForEach-Object {
-                  Write-Host "Building module: \$(\$_.Name)"
-                  az bicep build --file \$_.FullName --outdir '$(buildFolder)/modules'
-                }
-
-          - task: PowerShell@2
-            displayName: 'Run ARM Template Tests'
-            condition: \${{ parameters.testCondition }}
-            inputs:
-              targetType: 'inline'
-              script: |
-                # Install required modules
-                Write-Host "Installing ARM-TTK and Pester..."
-                Install-Module Pester -Force -Scope CurrentUser -RequiredVersion 4.10.1 -SkipPublisherCheck
-                
-                # Download ARM-TTK
-                Invoke-WebRequest -Uri "https://aka.ms/arm-ttk-latest" -OutFile "arm-ttk.zip"
-                Expand-Archive -Path "arm-ttk.zip" -DestinationPath "."
-                Import-Module "./arm-ttk/arm-ttk.psd1"
-                
-                # Create test results directory
-                New-Item -ItemType Directory -Path '$(testResultFolder)' -Force
-                
-                # Get template file
-                \$templateFile = Get-Item "\${{ parameters.templateFilePath }}"
-                \$armTemplate = "$(buildFolder)/" + \$templateFile.Name.Replace('.bicep', '.json')
-                
-                # Create test script
-                \$testScript = @"
-                param(\$exclusions = "")
-                Test-AzTemplate -TemplatePath '\$armTemplate' -Skip \$exclusions -Pester
-                "@
-                \$testScript | Out-File -FilePath "$(buildFolder)/armttk.tests.ps1" -Force
-                
-                # Run tests
-                if ("\${{ parameters.skipTests }}" -ne "none") {
-                  \$results = Invoke-Pester -Script @{Path="$(buildFolder)/armttk.tests.ps1"; Parameters=@{exclusions="\${{ parameters.skipTests }}"}} -OutputFormat NUnitXml -OutputFile "$(testResultFolder)/TEST-armttk.xml" -PassThru
-                } else {
-                  \$results = Invoke-Pester -Script @{Path="$(buildFolder)/armttk.tests.ps1"} -OutputFormat NUnitXml -OutputFile "$(testResultFolder)/TEST-armttk.xml" -PassThru
-                }
-                
-                # Check test results
-                if ("\${{ parameters.continueOnFailedTests }}" -eq "false" -and \$results.FailedCount -gt 0) {
-                  Write-Error "ARM Template tests failed!"
-                  exit 1
-                }
-
-          - task: PublishTestResults@2
-            displayName: 'Publish Test Results'
-            condition: \${{ parameters.testCondition }}
-            inputs:
-              testResultsFormat: 'NUnit'
-              testResultsFiles: '$(testResultFolder)/**/*.xml'
-              failTaskOnFailedTests: true
-
-          - task: PublishPipelineArtifact@1
-            displayName: 'Publish Build Artifacts'
-            inputs:
-              targetPath: '$(buildFolder)'
-              artifactName: '\${{ parameters.buildArtifactName }}'
-              publishLocation: 'pipeline'`,
-
-  deployTemplate: `parameters:
-  - name: stage
-    displayName: 'Deployment Stage Name'
-    type: string
-  - name: dependsOn
-    displayName: 'Stage Dependencies'
-    type: string
-    default: ""
-  - name: condition
-    displayName: 'Stage Condition'
-    type: string
-    default: "succeeded()"
-  - name: environment
-    displayName: 'Azure DevOps Environment'
-    type: string
-  - name: location
-    displayName: 'Azure Region'
-    type: string
-  - name: subscriptionId
-    displayName: 'Azure Subscription ID'
-    type: string
-  - name: resourceGroupName
-    displayName: 'Resource Group Name'
-    type: string
-  - name: templateFileName
-    displayName: 'ARM Template File Name'
-    type: string
-    default: 'main.json'
-  - name: parameterFileName
-    displayName: 'Parameter File Name'
-    type: string
-    default: 'parameters.json'
-  - name: deploymentName
-    displayName: 'Deployment Name'
-    type: string
-  - name: svcConnection
-    displayName: 'Azure Service Connection'
-    type: string
-  - name: previewChanges
-    displayName: 'Preview Changes (What-If)'
-    type: boolean
-    default: true
-  - name: buildArtifactName
-    displayName: 'Build Artifact Name'
-    type: string
-    default: 'infrastructure-build'
-
-stages:
-  # What-If Preview Stage
-  - \${{ if eq(parameters.previewChanges, true) }}:
-    - stage: Preview_\${{ parameters.stage }}
-      displayName: 'Preview Changes - \${{ parameters.stage }}'
-      dependsOn: \${{ parameters.dependsOn }}
-      condition: \${{ parameters.condition }}
-      jobs:
-        - job: WhatIfDeploy
-          displayName: 'What-If Deployment Preview'
-          pool:
-            vmImage: ubuntu-latest
-          steps:
-            - checkout: none
-
-            - task: DownloadPipelineArtifact@2
-              displayName: 'Download Build Artifacts'
-              inputs:
-                artifactName: '\${{ parameters.buildArtifactName }}'
-                downloadPath: '$(Pipeline.Workspace)/deploy'
-
-            - task: AzureCLI@2
-              displayName: 'Preview Resource Group Deployment'
-              inputs:
-                azureSubscription: \${{ parameters.svcConnection }}
-                scriptType: 'pscore'
-                scriptLocation: 'inlineScript'
-                inlineScript: |
-                  Write-Host "Setting subscription context..."
-                  az account set --subscription "\${{ parameters.subscriptionId }}"
-                  
-                  Write-Host "Ensuring resource group exists..."
-                  az group create --name "\${{ parameters.resourceGroupName }}" --location "\${{ parameters.location }}" --output none
-                  
-                  Write-Host "Running What-If deployment preview..."
-                  az deployment group what-if \
-                    --resource-group "\${{ parameters.resourceGroupName }}" \
-                    --template-file "$(Pipeline.Workspace)/deploy/\${{ parameters.templateFileName }}" \
-                    --parameters "$(Pipeline.Workspace)/deploy/\${{ parameters.parameterFileName }}" \
-                    --name "\${{ parameters.deploymentName }}-whatif" \
-                    --verbose
-
-  # Deployment Stage
-  - stage: Deploy_\${{ parameters.stage }}
-    displayName: 'Deploy - \${{ parameters.stage }}'
-    dependsOn: \${{ parameters.dependsOn }}
-    condition: \${{ parameters.condition }}
-    jobs:
-      - deployment: DeployInfrastructure
-        displayName: 'Deploy Infrastructure'
-        pool:
-          vmImage: ubuntu-latest
-        environment: '\${{ parameters.environment }}'
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - checkout: none
-
-                - task: DownloadPipelineArtifact@2
-                  displayName: 'Download Build Artifacts'
-                  inputs:
-                    artifactName: '\${{ parameters.buildArtifactName }}'
-                    downloadPath: '$(Pipeline.Workspace)/deploy'
-
-                - task: AzureCLI@2
-                  displayName: 'Deploy to Resource Group'
-                  inputs:
-                    azureSubscription: \${{ parameters.svcConnection }}
-                    scriptType: 'pscore'
-                    scriptLocation: 'inlineScript'
-                    inlineScript: |
-                      Write-Host "Setting subscription context..."
-                      az account set --subscription "\${{ parameters.subscriptionId }}"
-                      
-                      Write-Host "Ensuring resource group exists..."
-                      az group create --name "\${{ parameters.resourceGroupName }}" --location "\${{ parameters.location }}" --output none
-                      
-                      Write-Host "Deploying ARM template..."
-                      az deployment group create \
-                        --resource-group "\${{ parameters.resourceGroupName }}" \
-                        --template-file "$(Pipeline.Workspace)/deploy/\${{ parameters.templateFileName }}" \
-                        --parameters "$(Pipeline.Workspace)/deploy/\${{ parameters.parameterFileName }}" \
-                        --name "\${{ parameters.deploymentName }}" \
-                        --verbose
-
-                - task: AzureCLI@2
-                  displayName: 'Validate Deployment'
-                  inputs:
-                    azureSubscription: \${{ parameters.svcConnection }}
-                    scriptType: 'pscore'
-                    scriptLocation: 'inlineScript'
-                    inlineScript: |
-                      Write-Host "Checking deployment status..."
-                      \$deployment = az deployment group show \
-                        --resource-group "\${{ parameters.resourceGroupName }}" \
-                        --name "\${{ parameters.deploymentName }}" \
-                        --query "properties.provisioningState" \
-                        --output tsv
-                      
-                      if (\$deployment -eq "Succeeded") {
-                        Write-Host "✅ Deployment completed successfully!"
-                      } else {
-                        Write-Error "❌ Deployment failed with status: \$deployment"
-                        exit 1
-                      }`,
-
-  main: `name: 'Infrastructure Deployment Pipeline'
+  // Landing Zone Pipeline - Azure DevOps
+  adoLandingZonePipeline: `name: Deploy Landing Zone Infrastructure
 
 trigger:
   branches:
@@ -881,8 +603,8 @@ trigger:
       - develop
   paths:
     include:
-      - 'infra/**'
-      - 'pipelines/**'
+      - 'infra/bicep/landing-zone/**'
+      - 'ado-pipelines/**'
 
 pr:
   branches:
@@ -890,362 +612,218 @@ pr:
       - main
   paths:
     include:
-      - 'infra/**'
-      - 'pipelines/**'
+      - 'infra/bicep/landing-zone/**'
 
 variables:
   - name: workloadName
     value: '{{workload}}'
-  - name: organizationName
-    value: '{{organization}}'
-  - name: buildArtifactName
-    value: 'infrastructure-build'
+  - name: serviceConnection
+    value: '{{azureServiceConnection}}'
 
 stages:
-  # Build Stage
+  # Build Landing Zone Templates
   - template: templates/build-template.yml
     parameters:
-      templateFilePath: 'infra/bicep/main.bicep'
-      parameterFilePath: ''
+      templateFilePath: 'infra/bicep/landing-zone/main.bicep'
+      parameterFilePath: 'infra/bicep/landing-zone/main.bicepparam'
       continueOnFailedTests: false
-      skipTests: \${{ variables.skipArmTtkTests }}
-      testCondition: "succeeded()"
-      svcConnection: '{{azureServiceConnection}}'
-      buildArtifactName: \$(buildArtifactName)
+      skipTests: "none"
+      testCondition: eq(variables['Build.Reason'], 'PullRequest')
+      svcConnection: \$(serviceConnection)
 
 {{#each environments}}
 {{#if this.enabled}}
-  # Deploy to {{this.name}} Environment
+  # Deploy Landing Zone to {{this.name}}
   - template: templates/deploy-template.yml
     parameters:
-      stage: '{{this.name}}'
-      dependsOn: 'Build_Infrastructure'
-      condition: "and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))"
-      environment: '{{this.name}}'
+      stage: 'LandingZone_{{this.name}}'
+      dependsOn: 'Build'
+      condition: "and(succeeded(), in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/develop'))"
+      adoEnvironment: 'landing-zone-{{this.name}}'
       location: '{{this.region}}'
       subscriptionId: '{{../subscriptionId}}'
-      resourceGroupName: '{{../organization}}-{{../workload}}-{{this.name}}-{{this.regionShortCode}}-rg'
       templateFileName: 'main.json'
-      parameterFileName: '{{this.name}}.parameters.json'
-      deploymentName: '{{../workload}}-{{this.name}}-deployment'
-      svcConnection: '{{../azureServiceConnection}}'
-      previewChanges: {{#if this.previewChanges}}{{this.previewChanges}}{{else}}true{{/if}}
-      buildArtifactName: \$(buildArtifactName)
+      deploymentName: 'landing-zone-{{this.name}}-\$(Build.BuildNumber)'
+      parameterFilePath: 'main.bicepparam'
+      svcConnection: \$(serviceConnection)
+      previewChanges: true
+      azDeploymentType: 'subscription'
 
 {{/if}}
 {{/each}}`,
 
-  // GitHub Actions Templates
-  githubBuildTemplate: `name: 'Build Infrastructure'
+  // Sample Workload Pipeline - Azure DevOps  
+  adoWorkloadPipeline: `name: Deploy Sample Workload Infrastructure
 
-on:
-  workflow_call:
-    inputs:
-      template_file_path:
-        description: 'Path to Bicep template file'
-        type: string
-        required: true
-      continue_on_failed_tests:
-        description: 'Continue pipeline on test failures'
-        type: boolean
-        required: false
-        default: false
-      skip_tests:
-        description: 'ARM-TTK tests to skip'
-        type: string
-        required: false
-        default: "'apiVersions Should Be Recent','Template Should Not Contain Blanks'"
-      test_trigger:
-        description: 'Event that triggers tests'
-        type: string
-        required: true
-        default: 'pull_request'
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - 'infra/bicep/workload/**'
+      - 'ado-pipelines/**'
 
-env:
-  build_folder: 'build'
-  test_result_folder: 'test-results'
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - 'infra/bicep/workload/**'
 
-jobs:
-  build_infrastructure:
-    name: 'Build Bicep Templates'
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+variables:
+  - name: workloadName
+    value: '{{workload}}'
+  - name: serviceConnection
+    value: '{{azureServiceConnection}}'
 
-      - name: Setup Azure CLI
-        uses: azure/CLI@v1
-        with:
-          azcliversion: latest
+stages:
+  # Build Workload Templates
+  - template: templates/build-template.yml
+    parameters:
+      templateFilePath: 'infra/bicep/workload/main.bicep'
+      parameterFilePath: 'infra/bicep/workload/main.bicepparam'
+      continueOnFailedTests: false
+      skipTests: "none"
+      testCondition: eq(variables['Build.Reason'], 'PullRequest')
+      svcConnection: \$(serviceConnection)
 
-      - name: Build Bicep Templates
-        env:
-          BUILD_PATH: \${{ runner.temp }}/\${{ env.build_folder }}
-          TEST_PATH: \${{ runner.temp }}/\${{ env.test_result_folder }}
-        run: |
-          echo "Creating build directory..."
-          mkdir -p "\$BUILD_PATH"
-          
-          echo "Building main Bicep template..."
-          az bicep build --file \${{ inputs.template_file_path }} --outdir "\$BUILD_PATH"
-          
-          # Build parameter files if they exist
-          if [[ "\${{ inputs.template_file_path }}" == *".bicepparam" ]]; then
-            echo "Building Bicep parameter file..."
-            bicep build-params "\${{ inputs.template_file_path }}" --outfile "\$BUILD_PATH/parameters.json"
-          else
-            # Copy JSON parameter files
-            find . -name "*.parameters.json" -exec cp {} "\$BUILD_PATH/" \\;
-          fi
-          
-          # Build additional modules
-          find infra/bicep/modules -name "*.bicep" -type f | while read file; do
-            echo "Building module: \$file"
-            az bicep build --file "\$file" --outdir "\$BUILD_PATH/modules"
-          done
-        shell: bash
+{{#each environments}}
+{{#if this.enabled}}
+  # Deploy Workload to {{this.name}}
+  - template: templates/deploy-template.yml
+    parameters:
+      stage: 'Workload_{{this.name}}'
+      dependsOn: 'Build'
+      condition: "and(succeeded(), in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/develop'))"
+      adoEnvironment: 'workload-{{this.name}}'
+      location: '{{this.region}}'
+      subscriptionId: '{{../subscriptionId}}'
+      resourceGroupName: '{{../organization}}-{{../workload}}-{{this.name}}-{{this.regionShortCode}}-rg'
+      templateFileName: 'main.json'
+      deploymentName: 'workload-{{this.name}}-\$(Build.BuildNumber)'
+      parameterFilePath: 'main.bicepparam'
+      svcConnection: \$(serviceConnection)
+      previewChanges: true
+      azDeploymentType: 'resourceGroup'
 
-      - name: Run ARM Template Tests
-        if: \${{ inputs.test_trigger == 'pull_request' }}
-        env:
-          SKIP_TESTS: '\${{ inputs.skip_tests }}'
-          BUILD_PATH: \${{ runner.temp }}/\${{ env.build_folder }}
-          TEST_PATH: \${{ runner.temp }}/\${{ env.test_result_folder }}
-        run: |
-          # Install required modules
-          echo "Installing ARM-TTK and Pester..."
-          sudo pwsh -Command "Install-Module Pester -Force -Scope AllUsers -RequiredVersion 4.10.1 -SkipPublisherCheck"
-          
-          # Download ARM-TTK
-          wget -q https://aka.ms/arm-ttk-latest -O arm-ttk.zip
-          unzip -q arm-ttk.zip
-          
-          # Create test directory
-          mkdir -p "\$TEST_PATH"
-          
-          # Get template file name
-          TEMPLATE_FILE=\$(basename "\${{ inputs.template_file_path }}")
-          ARM_TEMPLATE="\$BUILD_PATH/\${TEMPLATE_FILE%.bicep}.json"
-          
-          # Create test script
-          cat > "\$BUILD_PATH/armttk.tests.ps1" << 'EOF'
-          param(\$exclusions = "")
-          Import-Module "./arm-ttk/arm-ttk.psd1"
-          Test-AzTemplate -TemplatePath \$env:ARM_TEMPLATE -Skip \$exclusions -Pester
-          EOF
-          
-          # Run tests
-          if [[ "\$SKIP_TESTS" != "none" ]]; then
-            sudo pwsh -Command "
-              \$env:ARM_TEMPLATE='\$ARM_TEMPLATE'
-              \$results = Invoke-Pester -Script @{Path='\$BUILD_PATH/armttk.tests.ps1'; Parameters=@{exclusions='\$SKIP_TESTS'}} -OutputFormat NUnitXml -OutputFile '\$TEST_PATH/TEST-armttk.xml' -PassThru
-              if ('\${{ inputs.continue_on_failed_tests }}' -eq 'false' -and \$results.FailedCount -gt 0) {
-                Write-Error 'ARM Template tests failed!'
-                exit 1
-              }
-            "
-          else
-            sudo pwsh -Command "
-              \$env:ARM_TEMPLATE='\$ARM_TEMPLATE'
-              \$results = Invoke-Pester -Script '\$BUILD_PATH/armttk.tests.ps1' -OutputFormat NUnitXml -OutputFile '\$TEST_PATH/TEST-armttk.xml' -PassThru
-              if ('\${{ inputs.continue_on_failed_tests }}' -eq 'false' -and \$results.FailedCount -gt 0) {
-                Write-Error 'ARM Template tests failed!'
-                exit 1
-              }
-            "
-          fi
-        shell: bash
+{{/if}}
+{{/each}}`,
 
-      - name: Upload Test Results
-        if: \${{ inputs.test_trigger == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: \${{ runner.temp }}/\${{ env.test_result_folder }}
-
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: infrastructure-build
-          path: \${{ runner.temp }}/\${{ env.build_folder }}
-          retention-days: 30`,
-
-  githubDeployTemplate: `name: 'Deploy Infrastructure'
-
-on:
-  workflow_call:
-    inputs:
-      environment:
-        description: 'Deployment environment'
-        type: string
-        required: true
-      resource_group_name:
-        description: 'Azure Resource Group name'
-        type: string
-        required: true
-      location:
-        description: 'Azure region for deployment'
-        type: string
-        required: true
-      template_file_name:
-        description: 'ARM template file name'
-        type: string
-        required: false
-        default: 'main.json'
-      parameter_file_name:
-        description: 'Parameter file name'
-        type: string
-        required: false
-        default: 'parameters.json'
-      deployment_name:
-        description: 'Azure deployment name'
-        type: string
-        required: true
-      preview_changes:
-        description: 'Run what-if preview'
-        type: boolean
-        required: false
-        default: true
-
-permissions:
-  id-token: write
-  contents: read
-
-jobs:
-  # What-If Preview Job
-  preview_deployment:
-    if: \${{ inputs.preview_changes == true }}
-    name: 'Preview Changes'
-    runs-on: ubuntu-latest
-    environment: \${{ inputs.environment }}-preview
-    
-    steps:
-      - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: infrastructure-build
-          path: ./deploy
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: \${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Preview Resource Group Deployment
-        run: |
-          echo "Setting subscription context..."
-          az account set --subscription "\${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          
-          echo "Ensuring resource group exists..."
-          az group create --name "\${{ inputs.resource_group_name }}" --location "\${{ inputs.location }}" --output none
-          
-          echo "Running What-If deployment preview..."
-          az deployment group what-if \\
-            --resource-group "\${{ inputs.resource_group_name }}" \\
-            --template-file "./deploy/\${{ inputs.template_file_name }}" \\
-            --parameters "./deploy/\${{ inputs.parameter_file_name }}" \\
-            --name "\${{ inputs.deployment_name }}-whatif" \\
-            --verbose
-
-  # Deployment Job
-  deploy_infrastructure:
-    name: 'Deploy Infrastructure'
-    runs-on: ubuntu-latest
-    environment: \${{ inputs.environment }}
-    needs: [preview_deployment]
-    if: \${{ always() && (needs.preview_deployment.result == 'success' || needs.preview_deployment.result == 'skipped') }}
-    
-    steps:
-      - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: infrastructure-build
-          path: ./deploy
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: \${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Deploy to Azure
-        run: |
-          echo "Setting subscription context..."
-          az account set --subscription "\${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          
-          echo "Ensuring resource group exists..."
-          az group create --name "\${{ inputs.resource_group_name }}" --location "\${{ inputs.location }}" --output none
-          
-          echo "Deploying ARM template..."
-          az deployment group create \\
-            --resource-group "\${{ inputs.resource_group_name }}" \\
-            --template-file "./deploy/\${{ inputs.template_file_name }}" \\
-            --parameters "./deploy/\${{ inputs.parameter_file_name }}" \\
-            --name "\${{ inputs.deployment_name }}" \\
-            --verbose
-
-      - name: Validate Deployment
-        run: |
-          echo "Checking deployment status..."
-          DEPLOYMENT_STATUS=\$(az deployment group show \\
-            --resource-group "\${{ inputs.resource_group_name }}" \\
-            --name "\${{ inputs.deployment_name }}" \\
-            --query "properties.provisioningState" \\
-            --output tsv)
-          
-          if [[ "\$DEPLOYMENT_STATUS" == "Succeeded" ]]; then
-            echo "✅ Deployment completed successfully!"
-          else
-            echo "❌ Deployment failed with status: \$DEPLOYMENT_STATUS"
-            exit 1
-          fi`,
-
-  githubMain: `name: 'Infrastructure Deployment'
+  // Landing Zone Pipeline - GitHub Actions
+  githubLandingZonePipeline: `name: Deploy Landing Zone Infrastructure
 
 on:
   push:
     branches: [main, develop]
-    paths: ['infra/**', '.github/workflows/**']
+    paths: 
+      - 'infra/bicep/landing-zone/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
-    paths: ['infra/**', '.github/workflows/**']
+    paths:
+      - 'infra/bicep/landing-zone/**'
   workflow_dispatch:
 
 env:
   WORKLOAD_NAME: '{{workload}}'
-  ORGANIZATION_NAME: '{{organization}}'
 
 jobs:
-  # Build Job
+  # Build Landing Zone Templates
   build:
-    name: 'Build Infrastructure'
-    uses: ./.github/workflows/build-template.yml
+    name: 'Build Landing Zone Templates'
+    uses: ./.github/workflows/templates/build.yml
     with:
-      template_file_path: 'infra/bicep/main.bicep'
+      template_file_path: 'infra/bicep/landing-zone/main.bicep'
+      parameter_file_path: 'infra/bicep/landing-zone/main.bicepparam'
       continue_on_failed_tests: false
-      skip_tests: "'apiVersions Should Be Recent','Template Should Not Contain Blanks'"
+      skip_tests: 'none'
       test_trigger: \${{ github.event_name }}
+      oidc_app_reg_client_id: \${{ vars.AZURE_CLIENT_ID }}
+      azure_tenant_id: \${{ vars.AZURE_TENANT_ID }}
+      environment: 'build'
 
 {{#each environments}}
 {{#if this.enabled}}
-  # Deploy to {{this.name}} Environment
-  deploy_{{this.name}}:
-    name: 'Deploy to {{this.name}}'
+  # Deploy Landing Zone to {{this.name}}
+  deploy_landingzone_{{this.name}}:
+    name: 'Deploy Landing Zone - {{this.name}}'
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    uses: ./.github/workflows/deploy-template.yml
+    uses: ./.github/workflows/templates/deploy.yml
     with:
-      environment: '{{this.name}}'
-      resource_group_name: '{{../organization}}-{{../workload}}-{{this.name}}-{{this.regionShortCode}}-rg'
+      stage: 'landing-zone-{{this.name}}'
+      environment: 'landing-zone-{{this.name}}'
       location: '{{this.region}}'
+      subscription_id: '{{../subscriptionId}}'
       template_file_name: 'main.json'
-      parameter_file_name: '{{this.name}}.parameters.json'
-      deployment_name: '{{../workload}}-{{this.name}}-deployment'
-      preview_changes: {{#if this.previewChanges}}{{this.previewChanges}}{{else}}true{{/if}}
+      parameter_file_name: 'main.bicepparam'
+      deployment_name: 'landing-zone-{{this.name}}-\${{ github.run_number }}'
+      preview_changes: true
+      deployment_type: 'subscription'
+      oidc_app_reg_client_id: \${{ vars.AZURE_CLIENT_ID }}
+      azure_tenant_id: \${{ vars.AZURE_TENANT_ID }}
+    secrets: inherit
+
+{{/if}}
+{{/each}}`,
+
+  // Sample Workload Pipeline - GitHub Actions
+  githubWorkloadPipeline: `name: Deploy Sample Workload Infrastructure
+
+on:
+  push:
+    branches: [main, develop]
+    paths: 
+      - 'infra/bicep/workload/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/bicep/workload/**'
+  workflow_dispatch:
+
+env:
+  WORKLOAD_NAME: '{{workload}}'
+
+jobs:
+  # Build Workload Templates
+  build:
+    name: 'Build Workload Templates'
+    uses: ./.github/workflows/templates/build.yml
+    with:
+      template_file_path: 'infra/bicep/workload/main.bicep'
+      parameter_file_path: 'infra/bicep/workload/main.bicepparam'
+      continue_on_failed_tests: false
+      skip_tests: 'none'
+      test_trigger: \${{ github.event_name }}
+      oidc_app_reg_client_id: \${{ vars.AZURE_CLIENT_ID }}
+      azure_tenant_id: \${{ vars.AZURE_TENANT_ID }}
+      environment: 'build'
+
+{{#each environments}}
+{{#if this.enabled}}
+  # Deploy Workload to {{this.name}}
+  deploy_workload_{{this.name}}:
+    name: 'Deploy Workload - {{this.name}}'
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/templates/deploy.yml
+    with:
+      stage: 'workload-{{this.name}}'
+      environment: 'workload-{{this.name}}'
+      location: '{{this.region}}'
+      subscription_id: '{{../subscriptionId}}'
+      resource_group_name: '{{../organization}}-{{../workload}}-{{this.name}}-{{this.regionShortCode}}-rg'
+      template_file_name: 'main.json'
+      parameter_file_name: 'main.bicepparam'
+      deployment_name: 'workload-{{this.name}}-\${{ github.run_number }}'
+      preview_changes: true
+      deployment_type: 'resourceGroup'
+      oidc_app_reg_client_id: \${{ vars.AZURE_CLIENT_ID }}
+      azure_tenant_id: \${{ vars.AZURE_TENANT_ID }}
     secrets: inherit
 
 {{/if}}

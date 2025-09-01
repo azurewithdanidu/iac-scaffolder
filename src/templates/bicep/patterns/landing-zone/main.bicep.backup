@@ -1,0 +1,280 @@
+// ==========================================================================================
+// Landing Zone Infrastructure Template
+// ==========================================================================================
+// This template deploys the foundational Azure infrastructure components that serve as
+// a landing zone for workloads using Azure Verified Modules (AVM).
+// ==========================================================================================
+
+targetScope = 'subscription'
+
+// ==========================================================================================
+// Parameters
+// ==========================================================================================
+
+@description('Organization or company name')
+param organization string = '{{organization}}'
+
+@description('Azure region for resource deployment')
+param location string = '{{location}}'
+
+@description('Environment name (e.g., dev, test, prod)')
+param environment string = '{{environment}}'
+
+@description('Azure region short code (e.g., eus, wus, uks)')
+param regionShortCode string = '{{regionShortCode}}'
+
+@description('Custom naming convention template')
+param namingTemplate string = '{org}-{workload}-{env}-{region}-{resourceType}-{instance}'
+
+@description('Custom resource type abbreviations')
+param resourceAbbreviations object = {}
+
+@description('Enable hub and spoke networking topology')
+param enableHubSpoke bool = false
+
+@description('Enable Azure Firewall in hub network')
+param enableFirewall bool = false
+
+@description('Enable DDoS Protection Standard')
+param enableDdosProtection bool = false
+
+@description('Enable monitoring and logging')
+param enableMonitoring bool = true
+
+@description('Deployment timestamp')
+param deploymentTimestamp string = utcNow()
+
+@description('Tags to apply to all resources')
+param tags object = {
+  Organization: organization
+  Environment: environment
+  DeployedBy: 'CloudBlueprint'
+  DeployedOn: deploymentTimestamp
+}
+
+// ==========================================================================================
+// Variables
+// ==========================================================================================
+
+var resourceNames = {
+  resourceGroup: {
+    hub: '${organization}-hub-${environment}-${regionShortCode}-rg'
+    security: '${organization}-security-${environment}-${regionShortCode}-rg'
+    monitoring: '${organization}-monitoring-${environment}-${regionShortCode}-rg'
+    shared: '${organization}-shared-${environment}-${regionShortCode}-rg'
+  }
+  keyVault: '${organization}-shared-${environment}-${regionShortCode}-kv'
+  logAnalytics: '${organization}-${environment}-${regionShortCode}-law'
+  storageAccount: take('${toLower(organization)}logs${toLower(environment)}${toLower(regionShortCode)}st', 24)
+  virtualNetwork: '${organization}-hub-${environment}-${regionShortCode}-vnet'
+}
+
+// ==========================================================================================
+// Resource Groups (AVM)
+// ==========================================================================================
+
+module hubResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = if (enableHubSpoke) {
+  name: 'hub-resource-group'
+  params: {
+    name: resourceNames.resourceGroup.hub
+    location: location
+    tags: union(tags, {
+      Purpose: 'Hub networking and connectivity'
+    })
+  }
+}
+
+module securityResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
+  name: 'security-resource-group'
+  params: {
+    name: resourceNames.resourceGroup.security
+    location: location
+    tags: union(tags, {
+      Purpose: 'Security services and key management'
+    })
+  }
+}
+
+module monitoringResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = if (enableMonitoring) {
+  name: 'monitoring-resource-group'
+  params: {
+    name: resourceNames.resourceGroup.monitoring
+    location: location
+    tags: union(tags, {
+      Purpose: 'Monitoring, logging, and observability'
+    })
+  }
+}
+
+module sharedResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
+  name: 'shared-resource-group'
+  params: {
+    name: resourceNames.resourceGroup.shared
+    location: location
+    tags: union(tags, {
+      Purpose: 'Shared services and resources'
+    })
+  }
+}
+
+// ==========================================================================================
+// Shared Services (AVM)
+// ==========================================================================================
+
+module sharedKeyVault 'br/public:avm/res/key-vault/vault:0.9.0' = {
+  name: 'shared-key-vault'
+  scope: resourceGroup(securityResourceGroup.outputs.name)
+  params: {
+    name: resourceNames.keyVault
+    location: location
+    sku: 'standard'
+    enableSoftDelete: true
+    softDeleteRetentionInDays: environment == 'prod' ? 90 : 7
+    enablePurgeProtection: environment == 'prod'
+    enableRbacAuthorization: true
+    networkAcls: {
+      defaultAction: 'Allow'
+      bypass: 'AzureServices'
+    }
+    tags: tags
+  }
+  dependsOn: [
+    securityResourceGroup
+  ]
+}
+
+module centralLogAnalytics 'br/public:avm/res/operational-insights/workspace:0.7.0' = if (enableMonitoring) {
+  name: 'central-log-analytics'
+  scope: resourceGroup(monitoringResourceGroup.outputs.name)
+  params: {
+    name: resourceNames.logAnalytics
+    location: location
+    dataRetention: environment == 'prod' ? 90 : 30
+    tags: tags
+  }
+  dependsOn: [
+    monitoringResourceGroup
+  ]
+}
+
+module logStorageAccount 'br/public:avm/res/storage/storage-account:0.14.3' = if (enableMonitoring) {
+  name: 'log-storage-account'
+  scope: resourceGroup(monitoringResourceGroup.outputs.name)
+  params: {
+    name: resourceNames.storageAccount
+    location: location
+    kind: 'StorageV2'
+    skuName: 'Standard_LRS'
+    accessTier: 'Hot'
+    supportsHttpsTrafficOnly: true
+    minimumTlsVersion: 'TLS1_2'
+    allowBlobPublicAccess: false
+    tags: tags
+  }
+  dependsOn: [
+    monitoringResourceGroup
+  ]
+}
+
+// ==========================================================================================
+// Networking (AVM)
+// ==========================================================================================
+
+module hubVirtualNetwork 'br/public:avm/res/network/virtual-network:0.5.1' = if (enableHubSpoke) {
+  name: 'hub-virtual-network'
+  scope: resourceGroup(hubResourceGroup.outputs.name)
+  params: {
+    name: resourceNames.virtualNetwork
+    location: location
+    addressPrefixes: [
+      '10.0.0.0/16'
+    ]
+    subnets: [
+      {
+        name: 'GatewaySubnet'
+        addressPrefix: '10.0.1.0/24'
+      }
+      {
+        name: 'AzureFirewallSubnet'
+        addressPrefix: '10.0.2.0/24'
+      }
+      {
+        name: 'SharedServicesSubnet'
+        addressPrefix: '10.0.3.0/24'
+      }
+    ]
+    tags: tags
+  }
+  dependsOn: [
+    hubResourceGroup
+  ]
+}
+
+// ==========================================================================================
+// Azure Policy Assignments
+// ==========================================================================================
+
+resource requireTagsPolicy 'Microsoft.Authorization/policyAssignments@2023-04-01' = {
+  name: 'require-common-tags-${environment}'
+  properties: {
+    displayName: 'Require common tags on resources'
+    description: 'Ensures that required tags are applied to all resources'
+    policyDefinitionId: '/providers/Microsoft.Authorization/policyDefinitions/1e30110a-5ceb-460c-a204-c1c3969c6d62'
+    parameters: {
+      tagNames: {
+        value: [
+          'Organization'
+          'Environment'
+          'DeployedBy'
+        ]
+      }
+    }
+  }
+}
+
+// ==========================================================================================
+// Outputs
+// ==========================================================================================
+
+@description('Hub resource group name')
+output hubResourceGroupName string = enableHubSpoke ? hubResourceGroup.outputs.name : ''
+
+@description('Security resource group name')
+output securityResourceGroupName string = securityResourceGroup.outputs.name
+
+@description('Monitoring resource group name')
+output monitoringResourceGroupName string = enableMonitoring ? monitoringResourceGroup.outputs.name : ''
+
+@description('Shared resource group name')
+output sharedResourceGroupName string = sharedResourceGroup.outputs.name
+
+@description('Shared Key Vault name')
+output sharedKeyVaultName string = sharedKeyVault.outputs.name
+
+@description('Central Log Analytics workspace ID')
+output centralLogAnalyticsWorkspaceId string = enableMonitoring ? centralLogAnalytics.outputs.resourceId : ''
+
+@description('Hub virtual network ID')
+output hubVirtualNetworkId string = enableHubSpoke ? hubVirtualNetwork.outputs.resourceId : ''
+
+@description('Hub virtual network name')
+output hubVirtualNetworkName string = enableHubSpoke ? hubVirtualNetwork.outputs.name : ''
+
+@description('Deployment timestamp')
+output deploymentTimestamp string = deploymentTimestamp
+
+@description('Landing zone configuration')
+output landingZoneConfig object = {
+  organization: organization
+  environment: environment
+  location: location
+  enableHubSpoke: enableHubSpoke
+  enableFirewall: enableFirewall
+  enableMonitoring: enableMonitoring
+  resourceGroups: {
+    hub: enableHubSpoke ? hubResourceGroup.outputs.name : ''
+    security: securityResourceGroup.outputs.name
+    monitoring: enableMonitoring ? monitoringResourceGroup.outputs.name : ''
+    shared: sharedResourceGroup.outputs.name
+  }
+}
