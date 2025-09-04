@@ -53,6 +53,9 @@ class TemplateFileReader {
       templates['README.md'] = this.generateReadme(formData)
       templates['docs/DEPLOYMENT.md'] = this.generateDeploymentGuide(formData)
       
+      // Always include naming module
+      templates['bicep/modules/naming/naming.bicep'] = this.processTemplate('bicep/modules/naming/naming.bicep', formData)
+      
       // Generate landing zone if selected
       if (formData.includePatterns.landingZone) {
         templates['bicep/patterns/landing-zone/main.bicep'] = this.processTemplate('bicep/patterns/landing-zone/main.bicep', formData)

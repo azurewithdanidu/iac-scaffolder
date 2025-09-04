@@ -1,0 +1,222 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.36.1.42791",
+      "templateHash": "14746258661262844039"
+    }
+  },
+  "parameters": {
+    "org": {
+      "type": "string",
+      "metadata": {
+        "description": "Organization or company name"
+      }
+    },
+    "workload": {
+      "type": "string",
+      "metadata": {
+        "description": "Workload or application name"
+      }
+    },
+    "environment": {
+      "type": "string",
+      "metadata": {
+        "description": "Environment name (e.g., dev, test, prod)"
+      }
+    },
+    "regionShortCode": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure region short code (e.g., eus, wus, uks)"
+      }
+    },
+    "instance": {
+      "type": "string",
+      "defaultValue": "001",
+      "metadata": {
+        "description": "Instance number for resources that need uniqueness"
+      }
+    }
+  },
+  "resources": [],
+  "outputs": {
+    "resourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource group name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-rg', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'))]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Storage account name (max 24 chars, lowercase, no special chars)"
+      },
+      "value": "[take(format('{0}{1}{2}{3}st{4}', toLower(parameters('org')), toLower(parameters('workload')), toLower(parameters('environment')), toLower(parameters('regionShortCode')), parameters('instance')), 24)]"
+    },
+    "keyVaultName": {
+      "type": "string",
+      "metadata": {
+        "description": "Key vault name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-kv-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "appServicePlanName": {
+      "type": "string",
+      "metadata": {
+        "description": "App Service plan name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-asp-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "appServiceName": {
+      "type": "string",
+      "metadata": {
+        "description": "App Service name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-app-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "applicationInsightsName": {
+      "type": "string",
+      "metadata": {
+        "description": "Application Insights name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-appi-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics workspace name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-law-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "containerRegistryName": {
+      "type": "string",
+      "metadata": {
+        "description": "Container Registry name (max 50 chars, alphanumeric only)"
+      },
+      "value": "[take(format('{0}{1}{2}{3}cr{4}', toLower(parameters('org')), toLower(parameters('workload')), toLower(parameters('environment')), toLower(parameters('regionShortCode')), parameters('instance')), 50)]"
+    },
+    "containerAppEnvironmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Container App Environment name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-cae-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "containerAppName": {
+      "type": "string",
+      "metadata": {
+        "description": "Container App name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-ca-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "virtualNetworkName": {
+      "type": "string",
+      "metadata": {
+        "description": "Virtual Network name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-vnet-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "networkSecurityGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Network Security Group name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-nsg-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "publicIPName": {
+      "type": "string",
+      "metadata": {
+        "description": "Public IP name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-pip-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "loadBalancerName": {
+      "type": "string",
+      "metadata": {
+        "description": "Load Balancer name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-lb-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "sqlServerName": {
+      "type": "string",
+      "metadata": {
+        "description": "SQL Server name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-sql-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "sqlDatabaseName": {
+      "type": "string",
+      "metadata": {
+        "description": "SQL Database name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-sqldb-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "cosmosDbAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Cosmos DB account name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-cosmos-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "redisCacheName": {
+      "type": "string",
+      "metadata": {
+        "description": "Redis Cache name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-redis-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "serviceBusNamespaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Service Bus namespace name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-sb-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "eventHubNamespaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Event Hub namespace name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-evhns-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "managedIdentityName": {
+      "type": "string",
+      "metadata": {
+        "description": "Managed Identity name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-mi-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "privateDnsZoneName": {
+      "type": "string",
+      "metadata": {
+        "description": "Private DNS Zone name"
+      },
+      "value": "[format('{0}.{1}.{2}.private', parameters('environment'), parameters('workload'), parameters('org'))]"
+    },
+    "apiManagementName": {
+      "type": "string",
+      "metadata": {
+        "description": "API Management service name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-apim-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "functionAppName": {
+      "type": "string",
+      "metadata": {
+        "description": "Function App name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-func-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    },
+    "staticWebAppName": {
+      "type": "string",
+      "metadata": {
+        "description": "Static Web App name"
+      },
+      "value": "[format('{0}-{1}-{2}-{3}-swa-{4}', parameters('org'), parameters('workload'), parameters('environment'), parameters('regionShortCode'), parameters('instance'))]"
+    }
+  }
+}

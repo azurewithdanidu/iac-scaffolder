@@ -26,6 +26,9 @@ param regionShortCode string = '{{regionShortCode}}'
 @description('Custom naming convention template')
 param namingTemplate string = '{org}-{workload}-{env}-{region}-{resourceType}-{instance}'
 
+@description('Custom resource type abbreviations')
+param resourceAbbreviations object = {}
+
 @description('Enable hub and spoke networking topology')
 param enableHubSpoke bool = false
 
@@ -50,47 +53,53 @@ param tags object = {
 }
 
 // ==========================================================================================
-// Core Resource Group (AVM)
+// Variables - Resource Names with Customer Customizable Naming Convention
 // ==========================================================================================
 
-module coreResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
-  name: 'core-resource-group'
-  params: {
-    name: '${organization}-landingzone-${environment}-${regionShortCode}-rg'
-    location: location
-    tags: union(tags, {
-      Purpose: 'Landing zone core infrastructure'
-      NamingTemplate: namingTemplate
-    })
-  }
+// Merge default and custom abbreviations
+var defaultAbbreviations = {
+  'Microsoft.Resources/resourceGroups': 'rg'
+  'Microsoft.Storage/storageAccounts': 'st'
+  'Microsoft.KeyVault/vaults': 'kv'
+  'Microsoft.OperationalInsights/workspaces': 'law'
+  'Microsoft.Network/virtualNetworks': 'vnet'
+}
+var mergedAbbreviations = union(defaultAbbreviations, resourceAbbreviations)
+
+// Build naming components
+var namingComponents = {
+  org: organization
+  workload: 'landingzone'
+  env: environment
+  region: regionShortCode
+  instance: '001'
 }
 
-// ==========================================================================================
-// Naming Module (deployed in the resource group)
-// ==========================================================================================
+// Base naming template
+var baseResourceName = replace(
+  replace(
+    replace(
+      replace(
+        replace(
+          namingTemplate,
+          '{org}', namingComponents.org
+        ),
+        '{workload}', namingComponents.workload
+      ),
+      '{env}', namingComponents.env
+    ),
+    '{region}', namingComponents.region
+  ),
+  '{instance}', namingComponents.instance
+)
 
-module naming '../../modules/naming/naming.bicep' = {
-  name: 'naming-landing-zone'
-  scope: resourceGroup(coreResourceGroup.name)
-  params: {
-    org: organization
-    workload: 'landingzone'
-    environment: environment
-    regionShortCode: regionShortCode
-    instance: '001'
-  }
-}
-
-// ==========================================================================================
-// Variables - Resource Names from Naming Module
-// ==========================================================================================
-
+// Resource names using customer-customizable naming convention
 var resourceNames = {
-  coreResourceGroup: coreResourceGroup.name
-  storageAccount: naming.outputs.storageAccountName
-  keyVault: naming.outputs.keyVaultName
-  logAnalyticsWorkspace: naming.outputs.logAnalyticsWorkspaceName
-  hubVirtualNetwork: naming.outputs.virtualNetworkName
+  coreResourceGroup: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.Resources/resourceGroups'])
+  storageAccount: take(toLower('${namingComponents.org}${namingComponents.workload}${namingComponents.env}${namingComponents.region}${mergedAbbreviations['Microsoft.Storage/storageAccounts']}${namingComponents.instance}'), 24)
+  keyVault: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.KeyVault/vaults'])
+  logAnalyticsWorkspace: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.OperationalInsights/workspaces'])
+  hubVirtualNetwork: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.Network/virtualNetworks'])
 }
 
 var hubNetworkConfig = {
@@ -109,6 +118,22 @@ var hubNetworkConfig = {
       addressPrefix: '10.0.3.0/24'
     }
   ]
+}
+
+// ==========================================================================================
+// Core Resource Group (AVM)
+// ==========================================================================================
+
+module coreResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
+  name: 'core-resource-group'
+  params: {
+    name: resourceNames.coreResourceGroup
+    location: location
+    tags: union(tags, {
+      Purpose: 'Landing zone core infrastructure'
+      NamingTemplate: namingTemplate
+    })
+  }
 }
 
 // ==========================================================================================
@@ -195,17 +220,18 @@ output namingConfig object = {
   environment: environment
   regionShortCode: regionShortCode
   namingTemplate: namingTemplate
+  resourceAbbreviations: mergedAbbreviations
   exampleResourceNames: resourceNames
 }
 
 @description('Log Analytics Workspace name')
-output logAnalyticsWorkspaceName string = enableMonitoring ? logAnalyticsWorkspace!.outputs.name : ''
+output logAnalyticsWorkspaceName string = enableMonitoring ? logAnalyticsWorkspace.outputs.name : ''
 
 @description('Log Analytics Workspace resource ID')
-output logAnalyticsWorkspaceId string = enableMonitoring ? logAnalyticsWorkspace!.outputs.resourceId : ''
+output logAnalyticsWorkspaceId string = enableMonitoring ? logAnalyticsWorkspace.outputs.resourceId : ''
 
 @description('Storage Account name')
-output storageAccountName string = enableMonitoring ? storageAccount!.outputs.name : ''
+output storageAccountName string = enableMonitoring ? storageAccount.outputs.name : ''
 
 @description('Key Vault name')
 output keyVaultName string = keyVault.outputs.name
@@ -214,10 +240,10 @@ output keyVaultName string = keyVault.outputs.name
 output keyVaultUri string = keyVault.outputs.uri
 
 @description('Hub Virtual Network name')
-output hubVirtualNetworkName string = enableHubSpoke ? hubVirtualNetwork!.outputs.name : ''
+output hubVirtualNetworkName string = enableHubSpoke ? hubVirtualNetwork.outputs.name : ''
 
 @description('Hub Virtual Network resource ID')
-output hubVirtualNetworkId string = enableHubSpoke ? hubVirtualNetwork!.outputs.resourceId : ''
+output hubVirtualNetworkId string = enableHubSpoke ? hubVirtualNetwork.outputs.resourceId : ''
 
 @description('Deployment timestamp')
 output deploymentTimestamp string = deploymentTimestamp

@@ -1,0 +1,75 @@
+name: Build Application
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node.js version to use"
+        type: string
+        required: false
+        default: "18"
+      working_directory:
+        description: "Working directory for the application"
+        type: string
+        required: false
+        default: "."
+      skip_tests:
+        description: "Skip running tests"
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      artifact_name:
+        description: "Name of the build artifact"
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+jobs:
+  build:
+    name: Build Next.js Application
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.artifact.outputs.name }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: npm ci
+
+      - name: Run Linting
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run lint
+
+      - name: Run Tests
+        if: ${{ !inputs.skip_tests }}
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run test
+
+      - name: Build Application
+        working-directory: ${{ inputs.working_directory }}
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Prepare Artifact
+        id: artifact
+        run: |
+          ARTIFACT_NAME="build-${{ github.run_number }}-${{ github.sha }}"
+          echo "name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ inputs.working_directory }}
+          retention-days: 30
+          include-hidden-files: false
