@@ -26,6 +26,9 @@ param regionShortCode string = '{{regionShortCode}}'
 @description('Custom naming convention template')
 param namingTemplate string = '{org}-{workload}-{env}-{region}-{resourceType}-{instance}'
 
+@description('Custom resource type abbreviations')
+param resourceAbbreviations object = {}
+
 @description('Enable hub and spoke networking topology')
 param enableHubSpoke bool = false
 
@@ -50,48 +53,24 @@ param tags object = {
 }
 
 // ==========================================================================================
-// Core Resource Group (AVM)
+// Naming Convention Module
 // ==========================================================================================
 
-module coreResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
-  name: 'core-resource-group'
+module naming '../../modules/naming.bicep' = {
+  name: 'landing-zone-naming'
   params: {
-    name: '${organization}-landingzone-${environment}-${regionShortCode}-rg'
-    location: location
-    tags: union(tags, {
-      Purpose: 'Landing zone core infrastructure'
-      NamingTemplate: namingTemplate
-    })
-  }
-}
-
-// ==========================================================================================
-// Naming Module (deployed in the resource group)
-// ==========================================================================================
-
-module naming '../../modules/naming/naming.bicep' = {
-  name: 'naming-landing-zone'
-  scope: resourceGroup(coreResourceGroup.name)
-  params: {
-    org: organization
+    organization: organization
     workload: 'landingzone'
     environment: environment
     regionShortCode: regionShortCode
-    instance: '001'
+    namingTemplate: namingTemplate
+    resourceAbbreviations: resourceAbbreviations
   }
 }
 
 // ==========================================================================================
-// Variables - Resource Names from Naming Module
+// Variables
 // ==========================================================================================
-
-var resourceNames = {
-  coreResourceGroup: coreResourceGroup.name
-  storageAccount: naming.outputs.storageAccountName
-  keyVault: naming.outputs.keyVaultName
-  logAnalyticsWorkspace: naming.outputs.logAnalyticsWorkspaceName
-  hubVirtualNetwork: naming.outputs.virtualNetworkName
-}
 
 var hubNetworkConfig = {
   addressSpace: '10.0.0.0/16'
@@ -112,6 +91,21 @@ var hubNetworkConfig = {
 }
 
 // ==========================================================================================
+// Core Resource Group (AVM)
+// ==========================================================================================
+
+module coreResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
+  name: 'core-resource-group'
+  params: {
+    name: naming.outputs.resourceGroupName
+    location: location
+    tags: union(tags, {
+      Purpose: 'Landing zone core infrastructure'
+    })
+  }
+}
+
+// ==========================================================================================
 // Monitoring Infrastructure (AVM)
 // ==========================================================================================
 
@@ -119,7 +113,7 @@ module logAnalyticsWorkspace 'br/public:avm/res/operational-insights/workspace:0
   name: 'core-log-analytics'
   scope: resourceGroup(coreResourceGroup.name)
   params: {
-    name: resourceNames.logAnalyticsWorkspace
+    name: naming.outputs.logAnalyticsWorkspaceName
     location: location
     dataRetention: 90
     tags: tags
@@ -130,7 +124,7 @@ module storageAccount 'br/public:avm/res/storage/storage-account:0.14.3' = if (e
   name: 'core-storage-account'
   scope: resourceGroup(coreResourceGroup.name)
   params: {
-    name: resourceNames.storageAccount
+    name: naming.outputs.storageAccountName
     location: location
     kind: 'StorageV2'
     skuName: 'Standard_LRS'
@@ -150,7 +144,7 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.9.0' = {
   name: 'core-key-vault'
   scope: resourceGroup(coreResourceGroup.name)
   params: {
-    name: resourceNames.keyVault
+    name: naming.outputs.keyVaultName
     location: location
     sku: 'standard'
     enableSoftDelete: true
@@ -169,15 +163,15 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.9.0' = {
 // Hub Virtual Network (AVM)
 // ==========================================================================================
 
-module hubVirtualNetwork 'br/public:avm/res/network/virtual-network:0.5.4' = if (enableHubSpoke) {
+module hubVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.1' = if (enableHubSpoke) {
   name: 'hub-virtual-network'
   scope: resourceGroup(coreResourceGroup.name)
   params: {
-    name: resourceNames.hubVirtualNetwork
+    name: naming.outputs.virtualNetworkName
     location: location
     addressPrefixes: [hubNetworkConfig.addressSpace]
     subnets: hubNetworkConfig.subnets
-    ddosProtectionPlanResourceId: enableDdosProtection ? '/subscriptions/${subscription().subscriptionId}/resourceGroups/NetworkWatcherRG/providers/Microsoft.Network/ddosProtectionPlans/default-ddos-plan' : ''
+    enableDdosProtection: enableDdosProtection
     tags: tags
   }
 }
@@ -189,23 +183,17 @@ module hubVirtualNetwork 'br/public:avm/res/network/virtual-network:0.5.4' = if 
 @description('Core Resource Group name')
 output coreResourceGroupName string = coreResourceGroup.name
 
-@description('Naming configuration used (customers can modify the namingTemplate parameter)')
-output namingConfig object = {
-  organization: organization
-  environment: environment
-  regionShortCode: regionShortCode
-  namingTemplate: namingTemplate
-  exampleResourceNames: resourceNames
-}
+@description('Naming configuration used')
+output namingConfig object = naming.outputs.namingConfig
 
 @description('Log Analytics Workspace name')
-output logAnalyticsWorkspaceName string = enableMonitoring ? logAnalyticsWorkspace!.outputs.name : ''
+output logAnalyticsWorkspaceName string = enableMonitoring ? logAnalyticsWorkspace.outputs.name : ''
 
 @description('Log Analytics Workspace resource ID')
-output logAnalyticsWorkspaceId string = enableMonitoring ? logAnalyticsWorkspace!.outputs.resourceId : ''
+output logAnalyticsWorkspaceId string = enableMonitoring ? logAnalyticsWorkspace.outputs.resourceId : ''
 
 @description('Storage Account name')
-output storageAccountName string = enableMonitoring ? storageAccount!.outputs.name : ''
+output storageAccountName string = enableMonitoring ? storageAccount.outputs.name : ''
 
 @description('Key Vault name')
 output keyVaultName string = keyVault.outputs.name
@@ -214,10 +202,10 @@ output keyVaultName string = keyVault.outputs.name
 output keyVaultUri string = keyVault.outputs.uri
 
 @description('Hub Virtual Network name')
-output hubVirtualNetworkName string = enableHubSpoke ? hubVirtualNetwork!.outputs.name : ''
+output hubVirtualNetworkName string = enableHubSpoke ? hubVirtualNetwork.outputs.name : ''
 
 @description('Hub Virtual Network resource ID')
-output hubVirtualNetworkId string = enableHubSpoke ? hubVirtualNetwork!.outputs.resourceId : ''
+output hubVirtualNetworkId string = enableHubSpoke ? hubVirtualNetwork.outputs.resourceId : ''
 
 @description('Deployment timestamp')
 output deploymentTimestamp string = deploymentTimestamp

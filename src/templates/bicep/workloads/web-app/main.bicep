@@ -31,12 +31,6 @@ param environment string = '{{environment}}'
 @description('Azure region short code (e.g., eus, wus, uks)')
 param regionShortCode string = '{{regionShortCode}}'
 
-@description('Custom naming convention template')
-param namingTemplate string = '{org}-{workload}-{env}-{region}-{resourceType}-{instance}'
-
-@description('Custom resource type abbreviations')
-param resourceAbbreviations object = {}
-
 @description('App Service Plan SKU')
 @allowed(['F1', 'D1', 'B1', 'B2', 'B3', 'S1', 'S2', 'S3', 'P1V2', 'P2V2', 'P3V2', 'P1V3', 'P2V3', 'P3V3'])
 param appServicePlanSku string = 'B1'
@@ -67,72 +61,48 @@ param tags object = {
 }
 
 // ==========================================================================================
-// Variables - Resource Names with Customer Customizable Naming Convention  
-// ==========================================================================================
-
-// Merge default and custom abbreviations
-var defaultAbbreviations = {
-  'Microsoft.Resources/resourceGroups': 'rg'
-  'Microsoft.Storage/storageAccounts': 'st'
-  'Microsoft.KeyVault/vaults': 'kv'
-  'Microsoft.OperationalInsights/workspaces': 'law'
-  'Microsoft.Insights/components': 'appi'
-  'Microsoft.Web/serverfarms': 'asp'
-  'Microsoft.Web/sites': 'app'
-}
-var mergedAbbreviations = union(defaultAbbreviations, resourceAbbreviations)
-
-// Build naming components
-var namingComponents = {
-  org: organization
-  workload: workload
-  env: environment
-  region: regionShortCode
-  instance: '001'
-}
-
-// Base naming template
-var baseResourceName = replace(
-  replace(
-    replace(
-      replace(
-        replace(
-          namingTemplate,
-          '{org}', namingComponents.org
-        ),
-        '{workload}', namingComponents.workload
-      ),
-      '{env}', namingComponents.env
-    ),
-    '{region}', namingComponents.region
-  ),
-  '{instance}', namingComponents.instance
-)
-
-// Resource names using customer-customizable naming convention
-var resourceNames = {
-  resourceGroup: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.Resources/resourceGroups'])
-  storageAccount: take(toLower('${namingComponents.org}${namingComponents.workload}${namingComponents.env}${namingComponents.region}${mergedAbbreviations['Microsoft.Storage/storageAccounts']}${namingComponents.instance}'), 24)
-  keyVault: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.KeyVault/vaults'])
-  appServicePlan: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.Web/serverfarms'])
-  appService: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.Web/sites'])
-  applicationInsights: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.Insights/components'])
-  logAnalyticsWorkspace: replace(baseResourceName, '{resourceType}', mergedAbbreviations['Microsoft.OperationalInsights/workspaces'])
-}
-
-// ==========================================================================================
 // Resource Group (AVM)
 // ==========================================================================================
 
 module workloadResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = {
   name: 'workload-resource-group'
   params: {
-    name: resourceNames.resourceGroup
+    name: '${organization}-${workload}-${environment}-${regionShortCode}-rg'
     location: location
     tags: union(tags, {
       Purpose: 'Web application workload resources'
     })
   }
+}
+
+// ==========================================================================================
+// Naming Module (deployed in the resource group)
+// ==========================================================================================
+
+module naming '../../modules/naming/naming.bicep' = {
+  name: 'naming-web-app'
+  scope: resourceGroup(workloadResourceGroup.name)
+  params: {
+    org: organization
+    workload: workload
+    environment: environment
+    regionShortCode: regionShortCode
+    instance: '001'
+  }
+}
+
+// ==========================================================================================
+// Variables - Resource Names from Naming Module
+// ==========================================================================================
+
+var resourceNames = {
+  resourceGroup: workloadResourceGroup.name
+  storageAccount: naming.outputs.storageAccountName
+  keyVault: naming.outputs.keyVaultName
+  appServicePlan: naming.outputs.appServicePlanName
+  appService: naming.outputs.appServiceName
+  applicationInsights: naming.outputs.applicationInsightsName
+  logAnalyticsWorkspace: naming.outputs.logAnalyticsWorkspaceName
 }
 
 // ==========================================================================================
