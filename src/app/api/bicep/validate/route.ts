@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
           const required: string[] = []
           const optional: string[] = []
           
-          Object.entries(parameters).forEach(([name, param]: [string, any]) => {
-            if (param.defaultValue !== undefined) {
+          Object.entries(parameters).forEach(([name, param]) => {
+            const paramObj = param as Record<string, unknown>
+            if (paramObj.defaultValue !== undefined) {
               optional.push(name)
             } else {
               required.push(name)
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({
             parameters: { required, optional }
           })
-        } catch (parseError) {
+        } catch {
           // Fallback: extract from bicep syntax
           const paramMatches = bicepContent.match(/param\s+(\w+)\s+/g) || []
           const extractedParams = paramMatches.map((match: string) => match.replace(/param\s+(\w+)\s+/, '$1'))
