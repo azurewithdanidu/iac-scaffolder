@@ -48,23 +48,6 @@ export default function HomePage() {
           <Card className="h-full">
             <CardHeader className="text-center">
               <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
-                <FileCode className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-              </div>
-              <CardTitle>WAF Policy Simulator</CardTitle>
-              <CardDescription>
-                Design, test, and export Azure WAF policies for Front Door and Application Gateway
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <Link href="/waf">
-                <Button className="w-full">Launch Simulator</Button>
-              </Link>
-            </CardContent>
-          </Card>
-          
-          <Card className="h-full">
-            <CardHeader className="text-center">
-              <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
                 <Layers className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
               <CardTitle>Workload Builder</CardTitle>
@@ -76,6 +59,23 @@ export default function HomePage() {
               <Link href="/workload-builder">
                 <Button className="w-full">Build Workload</Button>
               </Link>
+            </CardContent>
+          </Card>
+          
+          <Card className="h-full opacity-60">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-4">
+                <FileCode className="w-6 h-6 text-gray-400" />
+              </div>
+              <CardTitle>WAF Policy Simulator</CardTitle>
+              <CardDescription>
+                Design, test, and export Azure WAF policies for Front Door and Application Gateway
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <Button variant="secondary" disabled className="w-full">
+                Coming Soon
+              </Button>
             </CardContent>
           </Card>
           
