@@ -574,28 +574,108 @@ export default function WorkloadBuilderPage() {
 
   // Fallback parameter definitions for when API is not available
   const getFallbackParameters = (avmModuleRef: string) => {
-    // Extract service type from AVM module reference
-    const serviceType = avmModuleRef.split('/').pop()?.split(':')[0] || ''
+    // Map based on the actual AVM module reference to proper parameter definitions
+    const moduleMapping: Record<string, any> = {
+      // Web/App Services
+      'br/public:avm/res/web/site:0.12.0': {
+        required: ['name', 'serverFarmResourceId'],
+        optional: ['location', 'tags', 'kind', 'httpsOnly', 'clientAffinityEnabled', 'siteConfig'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'Web app/Function app name' },
+          serverFarmResourceId: { type: 'string', description: 'App Service Plan resource ID' },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          kind: { type: 'string', description: 'Kind of app service', defaultValue: 'app' },
+          httpsOnly: { type: 'bool', description: 'Only allow HTTPS traffic', defaultValue: true },
+          clientAffinityEnabled: { type: 'bool', description: 'Enable client affinity', defaultValue: false },
+          siteConfig: { type: 'object', description: 'Site configuration' }
+        }
+      },
+      
+      // App Service Plan
+      'br/public:avm/res/web/serverfarm:0.3.0': {
+        required: ['name'],
+        optional: ['location', 'tags', 'sku', 'kind', 'reserved'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'App Service Plan name' },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          sku: { type: 'object', description: 'App Service Plan SKU', defaultValue: { name: 'B1', tier: 'Basic' } },
+          kind: { type: 'string', description: 'App Service Plan kind', defaultValue: 'linux' },
+          reserved: { type: 'bool', description: 'Reserved for Linux', defaultValue: true }
+        }
+      },
+      
+      // Storage Account
+      'br/public:avm/res/storage/storage-account:0.14.1': {
+        required: ['name'],
+        optional: ['location', 'tags', 'skuName', 'kind', 'allowBlobPublicAccess', 'supportsHttpsTrafficOnly'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'Storage account name' },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          skuName: { type: 'string', description: 'Storage account SKU', allowedValues: ['Standard_LRS', 'Standard_GRS', 'Standard_RAGRS', 'Standard_ZRS', 'Premium_LRS'], defaultValue: 'Standard_LRS' },
+          kind: { type: 'string', description: 'Storage account kind', defaultValue: 'StorageV2' },
+          allowBlobPublicAccess: { type: 'bool', description: 'Allow blob public access', defaultValue: false },
+          supportsHttpsTrafficOnly: { type: 'bool', description: 'Only allow HTTPS traffic', defaultValue: true }
+        }
+      },
+      
+      // Virtual Machine
+      'br/public:avm/res/compute/virtual-machine:0.5.1': {
+        required: ['name', 'adminUsername', 'osType', 'vmSize', 'nicConfigurations'],
+        optional: ['location', 'tags', 'adminPassword', 'osDisk', 'dataDisks'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'Virtual machine name' },
+          adminUsername: { type: 'string', description: 'Administrator username' },
+          adminPassword: { type: 'secureString', description: 'Administrator password' },
+          osType: { type: 'string', description: 'Operating system type', allowedValues: ['Windows', 'Linux'] },
+          vmSize: { type: 'string', description: 'Virtual machine size', defaultValue: 'Standard_D2s_v3' },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          nicConfigurations: { type: 'array', description: 'Network interface configurations' },
+          osDisk: { type: 'object', description: 'OS disk configuration' },
+          dataDisks: { type: 'array', description: 'Data disk configurations' }
+        }
+      },
+      
+      // Key Vault
+      'br/public:avm/res/key-vault/vault:0.10.2': {
+        required: ['name'],
+        optional: ['location', 'tags', 'sku', 'enableSoftDelete', 'enablePurgeProtection'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'Key Vault name' },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          sku: { type: 'string', description: 'Key Vault SKU', defaultValue: 'standard' },
+          enableSoftDelete: { type: 'bool', description: 'Enable soft delete', defaultValue: true },
+          enablePurgeProtection: { type: 'bool', description: 'Enable purge protection', defaultValue: true }
+        }
+      },
+      
+      // Virtual Network
+      'br/public:avm/res/network/virtual-network:0.4.0': {
+        required: ['name', 'addressPrefixes'],
+        optional: ['location', 'tags', 'subnets'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'Virtual network name' },
+          addressPrefixes: { type: 'array', description: 'Virtual network address prefixes', defaultValue: ['10.0.0.0/16'] },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          subnets: { type: 'array', description: 'Subnet configurations' }
+        }
+      }
+    }
     
-    switch (serviceType) {
-      case 'resource-group':
-        return { required: ['name'], optional: ['location', 'tags', 'lock', 'roleAssignments'] }
-      case 'storage-account':
-        return { required: ['name'], optional: ['location', 'tags', 'skuName', 'kind', 'allowBlobPublicAccess', 'supportsHttpsTrafficOnly'] }
-      case 'app':
-        return { required: ['name', 'serverFarmResourceId'], optional: ['location', 'tags', 'kind', 'managedIdentities', 'siteConfig'] }
-      case 'serverfarm':
-        return { required: ['name'], optional: ['location', 'tags', 'sku', 'kind', 'reserved'] }
-      case 'vault':
-        return { required: ['name'], optional: ['location', 'tags', 'sku', 'enableSoftDelete', 'enablePurgeProtection'] }
-      case 'container-app':
-        return { required: ['name', 'environmentResourceId'], optional: ['location', 'tags', 'containers', 'scale'] }
-      case 'registry':
-        return { required: ['name'], optional: ['location', 'tags', 'acrSku', 'adminUserEnabled'] }
-      case 'virtual-network':
-        return { required: ['name', 'addressPrefixes'], optional: ['location', 'tags', 'subnets'] }
-      default:
-        return { required: ['name'], optional: ['location', 'tags'] }
+    // Return the specific module definition or a default fallback
+    return moduleMapping[avmModuleRef] || {
+      required: ['name'],
+      optional: ['location', 'tags'],
+      parameterDefinitions: {
+        name: { type: 'string', description: 'Resource name' },
+        location: { type: 'string', description: 'Resource location' },
+        tags: { type: 'object', description: 'Tags to apply to the resource' }
+      }
     }
   }
 
@@ -604,21 +684,20 @@ export default function WorkloadBuilderPage() {
     
     if (serviceInstances.length === 0) return ''
 
-    // Get parameter definitions for services dynamically
-    const getServiceParameters = async (service: any) => {
-      if (service.avmModule) {
-        return await fetchAvmModuleParameters(service.avmModule)
-      }
-      return { required: ['name'], optional: ['location', 'tags'] }
-    }
+    // Get parameter definitions for all services
+    const allServiceParameters = new Map()
+    const serviceParameterMappings = new Map()
 
-    // Generate comprehensive parameter section
-    const uniqueServices = Array.from(new Set(serviceInstances.map((i: any) => i.service!.id)))
-    const needsAppServicePlan = serviceInstances.some((i: any) => i.service!.id === 'app-service')
-    const needsContainerEnvironment = serviceInstances.some((i: any) => i.service!.id === 'container-app')
-    const needsLogAnalytics = serviceInstances.some((i: any) => i.service!.id === 'application-insights')
-    const needsSqlAuth = serviceInstances.some((i: any) => i.service!.id === 'sql-server')
-    const hasVirtualNetwork = serviceInstances.some((i: any) => i.service!.id === 'virtual-network')
+    for (const instance of serviceInstances) {
+      const service = instance.service!
+      const serviceParams = await fetchAvmModuleParameters(service.avmModule)
+      allServiceParameters.set(instance.instanceId, serviceParams)
+      serviceParameterMappings.set(instance.instanceId, {
+        service: service,
+        instance: instance,
+        parameters: serviceParams
+      })
+    }
 
     let bicepContent = `// Generated Workload Bicep Template
 // Services: ${serviceInstances.map(item => item.service?.name).filter(Boolean).join(', ')}
@@ -643,227 +722,166 @@ param tags object = {
   DeployedOn: utcNow()
 }
 
-// Resource-specific parameters
-${serviceInstances.some(i => i.service!.id === 'storage-account') ? `@description('Storage Account SKU')
-@allowed(['Standard_LRS', 'Standard_GRS', 'Standard_RAGRS', 'Standard_ZRS', 'Premium_LRS'])
-param storageSkuName string = 'Standard_LRS'
+// ========== SERVICE-SPECIFIC PARAMETERS ==========
+`
 
-@description('Allow blob public access')
-param allowBlobPublicAccess bool = false` : ''}
+    // Generate parameters for each service instance
+    for (const [instanceId, parameterInfo] of Array.from(serviceParameterMappings.entries())) {
+      const { service, instance, parameters } = parameterInfo
+      const instanceName = instance.instanceName
+      
+      bicepContent += `\n// Parameters for ${instanceName} (${service.name})\n`
+      
+      if (parameters.parameterDefinitions) {
+        // Generate parameters from comprehensive definitions
+        for (const [paramName, paramDef] of Object.entries(parameters.parameterDefinitions)) {
+          if (paramName === 'name' || paramName === 'location' || paramName === 'tags') {
+            // Skip common parameters we handle globally
+            continue
+          }
+          
+          const isRequired = parameters.required.includes(paramName)
+          const paramInfo = paramDef as any
+          
+          bicepContent += `@description('${paramInfo.description || `${paramName} for ${instanceName}`}')\n`
+          
+          if (paramInfo.allowedValues) {
+            bicepContent += `@allowed([${paramInfo.allowedValues.map((v: any) => `'${v}'`).join(', ')}])\n`
+          }
+          
+          if (paramInfo.type === 'secureString') {
+            bicepContent += `@secure()\n`
+          }
+          
+          const paramNameWithInstance = `${instanceId}_${paramName}`
+          
+          if (paramInfo.defaultValue !== undefined) {
+            if (typeof paramInfo.defaultValue === 'string') {
+              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = '${paramInfo.defaultValue}'\n`
+            } else if (typeof paramInfo.defaultValue === 'boolean') {
+              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = ${paramInfo.defaultValue}\n`
+            } else if (typeof paramInfo.defaultValue === 'object') {
+              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = ${JSON.stringify(paramInfo.defaultValue)}\n`
+            } else {
+              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = ${paramInfo.defaultValue}\n`
+            }
+          } else if (!isRequired) {
+            // Optional parameter without default
+            bicepContent += `param ${paramNameWithInstance} ${paramInfo.type}?\n`
+          } else {
+            // Required parameter without default
+            bicepContent += `param ${paramNameWithInstance} ${paramInfo.type}\n`
+          }
+          
+          bicepContent += '\n'
+        }
+      }
+    }
 
-${needsAppServicePlan ? `@description('App Service Plan SKU')
-param appServicePlanSku object = {
-  name: 'B1'
-  tier: 'Basic'
-  size: 'B1'
-  family: 'B'
-  capacity: 1
-}` : ''}
-
-${hasVirtualNetwork ? `@description('Virtual network address prefixes')
-param vnetAddressPrefixes array = ['10.0.0.0/16']
-
-@description('Virtual network subnets')
-param vnetSubnets array = [
-  {
-    name: 'default'
-    addressPrefix: '10.0.1.0/24'
-  }
-]` : ''}
-
-${needsSqlAuth ? `@description('SQL Server administrator login')
-param sqlAdministratorLogin string = 'sqladmin'
-
-@description('SQL Server administrator password')
-@secure()
-param sqlAdministratorPassword string` : ''}
-
-// ========== VARIABLES ==========
+    // ========== VARIABLES ==========
+    bicepContent += `
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var nameToken = '\${environmentName}-\${applicationName}'
 
 // ========== MODULES ==========
 `
 
-    serviceInstances.forEach((item, index) => {
-      const service = item.service!
-      const instanceSafeName = item.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
+    // Generate modules dynamically
+    for (const [instanceId, parameterInfo] of Array.from(serviceParameterMappings.entries())) {
+      const { service, instance, parameters } = parameterInfo
+      const instanceSafeName = instance.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
       
       bicepContent += `
-// ${item.instanceName}
+// ${instance.instanceName} (${service.name})
 module ${instanceSafeName}_module '${service.avmModule}' = {
-  name: '${item.instanceId}-\${resourceToken}'
+  name: '${instance.instanceId}-\${resourceToken}'
   params: {
-    name: '\${nameToken}-${item.instanceId}-\${resourceToken}'
+    name: '\${nameToken}-${instance.instanceId}-\${resourceToken}'
     location: location
     tags: tags
 `
 
-      // Add service-specific parameters with comprehensive configurations
-      if (service.id === 'storage-account') {
-        bicepContent += `    kind: 'StorageV2'
-    skuName: storageSkuName
-    allowBlobPublicAccess: allowBlobPublicAccess
-    supportsHttpsTrafficOnly: true
-    minimumTlsVersion: 'TLS1_2'
-    networkAcls: {
-      bypass: 'AzureServices'
-      defaultAction: 'Allow'
-    }
-`
-      } else if (service.id === 'web-app') {
-        const appServicePlan = serviceInstances.find(inst => inst.service?.id === 'app-service-plan')
-        if (appServicePlan) {
-          const planSafeName = appServicePlan.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          bicepContent += `    serverFarmResourceId: ${planSafeName}_module.outputs.resourceId
-    httpsOnly: true
-    siteConfig: {
-      alwaysOn: true
-      ftpsState: 'FtpsOnly'
-      minTlsVersion: '1.2'
-      use32BitWorkerProcess: false
-      webSocketsEnabled: false
-    }
-`
-        }
-      } else if (service.id === 'function-app') {
-        const appServicePlan = serviceInstances.find(inst => inst.service?.id === 'app-service-plan')
-        const storageAccount = serviceInstances.find(inst => inst.service?.id === 'storage-account')
-        if (appServicePlan && storageAccount) {
-          const planSafeName = appServicePlan.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          const storageSafeName = storageAccount.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          bicepContent += `    serverFarmResourceId: ${planSafeName}_module.outputs.resourceId
-    storageAccountResourceId: ${storageSafeName}_module.outputs.resourceId
-    kind: 'functionapp'
-    httpsOnly: true
-    siteConfig: {
-      alwaysOn: false
-      ftpsState: 'FtpsOnly'
-      minTlsVersion: '1.2'
-    }
-`
-        }
-      } else if (service.id === 'app-service-plan') {
-        bicepContent += `    sku: appServicePlanSku
-`
-      } else if (service.id === 'key-vault') {
-        bicepContent += `    sku: 'standard'
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 90
-    enablePurgeProtection: true
-    enableRbacAuthorization: true
-    networkAcls: {
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
-`
-      } else if (service.id === 'container-app') {
-        // Check if there's a container app environment
-        const containerEnv = serviceInstances.find(inst => inst.service?.id === 'container-app-environment')
-        if (containerEnv) {
-          const envSafeName = containerEnv.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          bicepContent += `    environmentResourceId: ${envSafeName}_module.outputs.resourceId
-`
-        }
-        bicepContent += `    containers: [
-      {
-        name: 'main'
-        image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-        resources: {
-          cpu: '0.25'
-          memory: '0.5Gi'
+      // Add all parameters for this service instance
+      if (parameters.parameterDefinitions) {
+        for (const [paramName, paramDef] of Object.entries(parameters.parameterDefinitions)) {
+          if (paramName === 'name' || paramName === 'location' || paramName === 'tags') {
+            // Skip common parameters we handle globally
+            continue
+          }
+          
+          const paramNameWithInstance = `${instanceId}_${paramName}`
+          const isRequired = parameters.required.includes(paramName)
+          
+          // Handle special cross-service references
+          if (paramName === 'serverFarmResourceId' && (service.id === 'web-app' || service.id === 'function-app')) {
+            // Find app service plan instance
+            const appServicePlan = serviceInstances.find(inst => inst.service?.id === 'app-service-plan')
+            if (appServicePlan) {
+              const planSafeName = appServicePlan.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
+              bicepContent += `    ${paramName}: ${planSafeName}_module.outputs.resourceId\n`
+              continue
+            }
+          }
+          
+          if (paramName === 'environmentResourceId' && service.id === 'container-app') {
+            // Find container app environment instance
+            const containerEnv = serviceInstances.find(inst => inst.service?.id === 'container-app-environment')
+            if (containerEnv) {
+              const envSafeName = containerEnv.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
+              bicepContent += `    ${paramName}: ${envSafeName}_module.outputs.resourceId\n`
+              continue
+            }
+          }
+          
+          if (paramName === 'storageAccountResourceId' && (service.id === 'function-app' || service.id === 'batch-account')) {
+            // Find storage account instance
+            const storageAccount = serviceInstances.find(inst => inst.service?.id === 'storage-account')
+            if (storageAccount) {
+              const storageSafeName = storageAccount.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
+              bicepContent += `    ${paramName}: ${storageSafeName}_module.outputs.resourceId\n`
+              continue
+            }
+          }
+          
+          if (paramName === 'workspaceResourceId' && service.id === 'application-insights') {
+            // Find log analytics workspace instance
+            const logAnalytics = serviceInstances.find(inst => inst.service?.id === 'log-analytics')
+            if (logAnalytics) {
+              const logSafeName = logAnalytics.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
+              bicepContent += `    ${paramName}: ${logSafeName}_module.outputs.resourceId\n`
+              continue
+            }
+          }
+          
+          // Use the parameter we defined
+          if (isRequired || (paramDef as any).defaultValue !== undefined) {
+            bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
+          }
         }
       }
-    ]
-    scale: {
-      minReplicas: 0
-      maxReplicas: 10
-    }
-`
-      } else if (service.id === 'container-registry') {
-        bicepContent += `    acrSku: 'Basic'
-    adminUserEnabled: false
-    publicNetworkAccess: 'Enabled'
-`
-      } else if (service.id === 'virtual-network') {
-        bicepContent += `    addressPrefixes: vnetAddressPrefixes
-    subnets: vnetSubnets
-`
-      } else if (service.id === 'sql-server') {
-        bicepContent += `    administratorLogin: sqlAdministratorLogin
-    administratorLoginPassword: sqlAdministratorPassword
-    version: '12.0'
-    minimalTlsVersion: '1.2'
-    publicNetworkAccess: 'Enabled'
-`
-      } else if (service.id === 'sql-database') {
-        const sqlServer = serviceInstances.find(inst => inst.service?.id === 'sql-server')
-        if (sqlServer) {
-          const serverSafeName = sqlServer.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          bicepContent += `    serverName: ${serverSafeName}_module.outputs.name
-    collation: 'SQL_Latin1_General_CP1_CI_AS'
-    tier: 'Basic'
-    skuName: 'Basic'
-    maxSizeBytes: 2147483648
-`
-        }
-      } else if (service.id === 'cosmos-db') {
-        bicepContent += `    locations: [
-      {
-        locationName: location
-        isZoneRedundant: false
-      }
-    ]
-    databaseAccountOfferType: 'Standard'
-    consistencyPolicy: {
-      defaultConsistencyLevel: 'Session'
-    }
-`
-      } else if (service.id === 'log-analytics') {
-        bicepContent += `    dataRetention: 90
-    skuName: 'PerGB2018'
-    publicNetworkAccessForIngestion: 'Enabled'
-    publicNetworkAccessForQuery: 'Enabled'
-`
-      } else if (service.id === 'application-insights') {
-        const logAnalytics = serviceInstances.find(inst => inst.service?.id === 'log-analytics')
-        if (logAnalytics) {
-          const logSafeName = logAnalytics.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          bicepContent += `    workspaceResourceId: ${logSafeName}_module.outputs.resourceId
-    applicationType: 'web'
-    kind: 'web'
-    retentionInDays: 90
-`
-        }
-      } else if (service.id === 'batch-account') {
-        const storageAccount = serviceInstances.find(inst => inst.service?.id === 'storage-account')
-        if (storageAccount) {
-          const storageSafeName = storageAccount.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-          bicepContent += `    storageAccountResourceId: ${storageSafeName}_module.outputs.resourceId
-`
-        }
-      }
-
+      
       bicepContent += `  }
 }
 `
-    })
+    }
 
-    // Add outputs
+    // Add outputs section
     bicepContent += `
 // ========== OUTPUTS ==========
 `
-    serviceInstances.forEach(item => {
-      const service = item.service!
-      const instanceSafeName = item.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
-      bicepContent += `@description('Name of ${item.instanceName}')
-output ${instanceSafeName}_name string = ${instanceSafeName}_module.outputs.name
 
-@description('Resource ID of ${item.instanceName}')
+    for (const [instanceId, parameterInfo] of Array.from(serviceParameterMappings.entries())) {
+      const { instance } = parameterInfo
+      const instanceSafeName = instance.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
+      
+      bicepContent += `
+@description('Resource ID of ${instance.instanceName}')
 output ${instanceSafeName}_resourceId string = ${instanceSafeName}_module.outputs.resourceId
 
+@description('Name of ${instance.instanceName}')
+output ${instanceSafeName}_name string = ${instanceSafeName}_module.outputs.name
 `
-    })
+    }
 
     return bicepContent
   }
