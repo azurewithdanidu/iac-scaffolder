@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Code, FileCode, Cog, BookOpen } from 'lucide-react'
+import { Code, FileCode, Layers, BookOpen } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 export default function HomePage() {
@@ -45,31 +45,31 @@ export default function HomePage() {
             </CardContent>
           </Card>
           
-          <Card className="h-full opacity-60">
+          <Card className="h-full">
             <CardHeader className="text-center">
-              <div className="mx-auto w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-4">
-                <FileCode className="w-6 h-6 text-gray-400" />
+              <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
+                <Layers className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
-              <CardTitle>Policy Generator</CardTitle>
+              <CardTitle>Workload Builder</CardTitle>
               <CardDescription>
-                Create Azure Policy definitions and assignments for governance and compliance
+                Select Azure services and generate Bicep templates with Azure Verified Module (AVM) references
               </CardDescription>
             </CardHeader>
             <CardContent className="text-center">
-              <Button variant="secondary" disabled className="w-full">
-                Coming Soon
-              </Button>
+              <Link href="/workload-builder">
+                <Button className="w-full">Build Workload</Button>
+              </Link>
             </CardContent>
           </Card>
           
           <Card className="h-full opacity-60">
             <CardHeader className="text-center">
               <div className="mx-auto w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-4">
-                <Cog className="w-6 h-6 text-gray-400" />
+                <FileCode className="w-6 h-6 text-gray-400" />
               </div>
-              <CardTitle>Config Builder</CardTitle>
+              <CardTitle>WAF Policy Simulator</CardTitle>
               <CardDescription>
-                Build configuration files for Azure services with validation and best practices
+                Design, test, and export Azure WAF policies for Front Door and Application Gateway
               </CardDescription>
             </CardHeader>
             <CardContent className="text-center">
