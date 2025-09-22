@@ -7,7 +7,7 @@ CloudBlueprint is a Next.js web application that generates complete Azure Infras
 - **100% Client-Side**: No backend required, all generation happens in your browser
 - **Enterprise Ready**: Built with Azure best practices and governance patterns
 - **Complete Repository**: Generates full folder structure with Bicep templates, GitHub Actions, and documentation
-- **Naming Conventions**: Implements Azure Cloud Adoption Framework naming standards
+- **Naming Conventions**: Implements Azure Cloud Adoption Framework naming standards.
 - **Module System**: Uses Azure Verified Modules (AVM) wrappers for consistency
 - **Multi-Environment**: Supports dev/test/prod environments with region-specific configurations
 
