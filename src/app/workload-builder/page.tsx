@@ -609,7 +609,7 @@ export default function WorkloadBuilderPage() {
       // Storage Account
       'br/public:avm/res/storage/storage-account:0.14.1': {
         required: ['name'],
-        optional: ['location', 'tags', 'skuName', 'kind', 'allowBlobPublicAccess', 'supportsHttpsTrafficOnly'],
+        optional: ['location', 'tags', 'skuName', 'kind', 'allowBlobPublicAccess', 'supportsHttpsTrafficOnly', 'minimumTlsVersion'],
         parameterDefinitions: {
           name: { type: 'string', description: 'Storage account name' },
           location: { type: 'string', description: 'Resource location' },
@@ -617,7 +617,22 @@ export default function WorkloadBuilderPage() {
           skuName: { type: 'string', description: 'Storage account SKU', allowedValues: ['Standard_LRS', 'Standard_GRS', 'Standard_RAGRS', 'Standard_ZRS', 'Premium_LRS'], defaultValue: 'Standard_LRS' },
           kind: { type: 'string', description: 'Storage account kind', defaultValue: 'StorageV2' },
           allowBlobPublicAccess: { type: 'bool', description: 'Allow blob public access', defaultValue: false },
-          supportsHttpsTrafficOnly: { type: 'bool', description: 'Only allow HTTPS traffic', defaultValue: true }
+          supportsHttpsTrafficOnly: { type: 'bool', description: 'Only allow HTTPS traffic', defaultValue: true },
+          minimumTlsVersion: { type: 'string', description: 'Minimum TLS version', defaultValue: 'TLS1_2' }
+        }
+      },
+      'br/public:avm/res/storage/storage-account:0.14.3': {
+        required: ['name'],
+        optional: ['location', 'tags', 'skuName', 'kind', 'allowBlobPublicAccess', 'supportsHttpsTrafficOnly', 'minimumTlsVersion'],
+        parameterDefinitions: {
+          name: { type: 'string', description: 'Storage account name' },
+          location: { type: 'string', description: 'Resource location' },
+          tags: { type: 'object', description: 'Tags to apply to the resource' },
+          skuName: { type: 'string', description: 'Storage account SKU', allowedValues: ['Standard_LRS', 'Standard_GRS', 'Standard_RAGRS', 'Standard_ZRS', 'Premium_LRS'], defaultValue: 'Standard_LRS' },
+          kind: { type: 'string', description: 'Storage account kind', defaultValue: 'StorageV2' },
+          allowBlobPublicAccess: { type: 'bool', description: 'Allow blob public access', defaultValue: false },
+          supportsHttpsTrafficOnly: { type: 'bool', description: 'Only allow HTTPS traffic', defaultValue: true },
+          minimumTlsVersion: { type: 'string', description: 'Minimum TLS version', defaultValue: 'TLS1_2' }
         }
       },
       
@@ -811,50 +826,61 @@ module ${instanceSafeName}_module '${service.avmModule}' = {
           
           const paramNameWithInstance = `${instanceId}_${paramName}`
           const isRequired = parameters.required.includes(paramName)
+          const hasDefault = (paramDef as any).defaultValue !== undefined
           
           // Handle special cross-service references
-          if (paramName === 'serverFarmResourceId' && (service.id === 'web-app' || service.id === 'function-app')) {
+          if (paramName === 'serverFarmResourceId') {
             // Find app service plan instance
             const appServicePlan = serviceInstances.find(inst => inst.service?.id === 'app-service-plan')
             if (appServicePlan) {
               const planSafeName = appServicePlan.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
               bicepContent += `    ${paramName}: ${planSafeName}_module.outputs.resourceId\n`
-              continue
+            } else {
+              // No App Service Plan found, use parameter
+              bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
             }
+            continue
           }
           
-          if (paramName === 'environmentResourceId' && service.id === 'container-app') {
+          if (paramName === 'environmentResourceId') {
             // Find container app environment instance
             const containerEnv = serviceInstances.find(inst => inst.service?.id === 'container-app-environment')
             if (containerEnv) {
               const envSafeName = containerEnv.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
               bicepContent += `    ${paramName}: ${envSafeName}_module.outputs.resourceId\n`
-              continue
+            } else {
+              bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
             }
+            continue
           }
           
-          if (paramName === 'storageAccountResourceId' && (service.id === 'function-app' || service.id === 'batch-account')) {
+          if (paramName === 'storageAccountResourceId') {
             // Find storage account instance
             const storageAccount = serviceInstances.find(inst => inst.service?.id === 'storage-account')
             if (storageAccount) {
               const storageSafeName = storageAccount.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
               bicepContent += `    ${paramName}: ${storageSafeName}_module.outputs.resourceId\n`
-              continue
+            } else {
+              bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
             }
+            continue
           }
           
-          if (paramName === 'workspaceResourceId' && service.id === 'application-insights') {
+          if (paramName === 'workspaceResourceId') {
             // Find log analytics workspace instance
             const logAnalytics = serviceInstances.find(inst => inst.service?.id === 'log-analytics')
             if (logAnalytics) {
               const logSafeName = logAnalytics.instanceId.replace(/[^a-zA-Z0-9]/g, '_')
               bicepContent += `    ${paramName}: ${logSafeName}_module.outputs.resourceId\n`
-              continue
+            } else {
+              bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
             }
+            continue
           }
           
-          // Use the parameter we defined
-          if (isRequired || (paramDef as any).defaultValue !== undefined) {
+          // Include ALL required parameters, even without defaults
+          // Include optional parameters that have defaults
+          if (isRequired || hasDefault) {
             bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
           }
         }
