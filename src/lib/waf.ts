@@ -1,9 +1,28 @@
 // WAF Policy Types and Utilities
 
 export type WAFTarget = 'AFD' | 'AppGW'
-export type RuleAction = 'Allow' | 'Block' | 'Log' | 'Redirect'
-export type RuleOperator = 'Contains' | 'Equals' | 'BeginsWith' | 'EndsWith' | 'GreaterThan' | 'LessThan' | 'GreaterThanOrEqual' | 'LessThanOrEqual' | 'RegEx' | 'GeoMatch' | 'IPMatch' | 'Any'
-export type MatchVariable = 'RequestUri' | 'QueryString' | 'PostArgs' | 'RequestHeaders' | 'RequestBody' | 'RequestCookies' | 'RequestMethod' | 'RemoteAddr'
+
+// Azure Front Door specific actions (supports advanced features)
+export type AFDRuleAction = 'Allow' | 'Block' | 'Log' | 'Redirect' | 'AnomalyScoring' | 'CAPTCHA' | 'JSChallenge'
+
+// Application Gateway actions (subset)
+export type AppGWRuleAction = 'Allow' | 'Block' | 'Log'
+
+export type RuleAction = AFDRuleAction | AppGWRuleAction
+
+// Azure Front Door match variables
+export type AFDMatchVariable = 'Cookies' | 'PostArgs' | 'QueryString' | 'RemoteAddr' | 'RequestBody' | 'RequestHeader' | 'RequestMethod' | 'RequestUri' | 'SocketAddr'
+
+// Application Gateway match variables
+export type AppGWMatchVariable = 'RemoteAddr' | 'RequestMethod' | 'QueryString' | 'PostArgs' | 'RequestUri' | 'RequestHeaders' | 'RequestBody' | 'RequestCookies'
+
+export type MatchVariable = AFDMatchVariable | AppGWMatchVariable
+
+// Operators (shared but AFD has more)
+export type AFDOperator = 'Any' | 'BeginsWith' | 'Contains' | 'EndsWith' | 'Equal' | 'GeoMatch' | 'GreaterThan' | 'GreaterThanOrEqual' | 'IPMatch' | 'LessThan' | 'LessThanOrEqual' | 'RegEx' | 'ServiceTagMatch'
+export type AppGWOperator = 'IPMatch' | 'Equal' | 'Contains' | 'LessThan' | 'GreaterThan' | 'LessThanOrEqual' | 'GreaterThanOrEqual' | 'BeginsWith' | 'EndsWith' | 'Regex' | 'Geomatch' | 'Any'
+
+export type RuleOperator = AFDOperator | AppGWOperator
 
 export interface WAFMatchCondition {
   matchVariable: MatchVariable
@@ -219,12 +238,14 @@ function evaluateCondition(condition: WAFMatchCondition, request: SimulationRequ
   
   // Evaluate operator
   let result = false
+  const op = condition.operator as string
   
-  switch (condition.operator) {
+  switch (op) {
     case 'Contains':
       result = condition.matchValue.some(pattern => value.includes(pattern.toLowerCase()))
       break
     case 'Equals':
+    case 'Equal':
       result = condition.matchValue.some(pattern => value === pattern.toLowerCase())
       break
     case 'BeginsWith':
@@ -234,6 +255,7 @@ function evaluateCondition(condition: WAFMatchCondition, request: SimulationRequ
       result = condition.matchValue.some(pattern => value.endsWith(pattern.toLowerCase()))
       break
     case 'RegEx':
+    case 'Regex':
       result = condition.matchValue.some(pattern => new RegExp(pattern).test(value))
       break
     case 'Any':
@@ -242,6 +264,27 @@ function evaluateCondition(condition: WAFMatchCondition, request: SimulationRequ
     case 'IPMatch':
       // Simplified IP matching
       result = condition.matchValue.some(ip => request.headers['x-forwarded-for']?.includes(ip))
+      break
+    case 'GeoMatch':
+    case 'Geomatch':
+      // Simplified geo matching - would need proper implementation
+      result = condition.matchValue.includes(request.headers['x-forwarded-for'] || '')
+      break
+    case 'GreaterThan':
+      result = condition.matchValue.some(v => parseFloat(value) > parseFloat(v))
+      break
+    case 'LessThan':
+      result = condition.matchValue.some(v => parseFloat(value) < parseFloat(v))
+      break
+    case 'GreaterThanOrEqual':
+      result = condition.matchValue.some(v => parseFloat(value) >= parseFloat(v))
+      break
+    case 'LessThanOrEqual':
+      result = condition.matchValue.some(v => parseFloat(value) <= parseFloat(v))
+      break
+    case 'ServiceTagMatch':
+      // Would need Azure service tag implementation
+      result = false
       break
     default:
       result = false
@@ -252,7 +295,9 @@ function evaluateCondition(condition: WAFMatchCondition, request: SimulationRequ
 }
 
 function extractMatchValue(condition: WAFMatchCondition, request: SimulationRequest): string {
-  switch (condition.matchVariable) {
+  const matchVar = condition.matchVariable as string
+  
+  switch (matchVar) {
     case 'RequestUri':
       return request.url.toLowerCase()
     case 'QueryString':
@@ -261,6 +306,7 @@ function extractMatchValue(condition: WAFMatchCondition, request: SimulationRequ
         .join('&')
         .toLowerCase()
     case 'RequestHeaders':
+    case 'RequestHeader':
       if (condition.selector) {
         return (request.headers[condition.selector.toLowerCase()] || '').toLowerCase()
       }
@@ -268,6 +314,7 @@ function extractMatchValue(condition: WAFMatchCondition, request: SimulationRequ
     case 'RequestBody':
       return (request.body || '').toLowerCase()
     case 'RequestCookies':
+    case 'Cookies':
       if (condition.selector) {
         return (request.cookies[condition.selector.toLowerCase()] || '').toLowerCase()
       }
@@ -275,7 +322,14 @@ function extractMatchValue(condition: WAFMatchCondition, request: SimulationRequ
     case 'RequestMethod':
       return request.method.toLowerCase()
     case 'RemoteAddr':
+    case 'SocketAddr':
       return request.headers['x-forwarded-for'] || request.headers['remote-addr'] || ''
+    case 'PostArgs':
+      // Parse POST body as form data
+      if (request.body && request.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+        return request.body.toLowerCase()
+      }
+      return ''
     default:
       return ''
   }
@@ -300,29 +354,84 @@ function applyTransform(value: string, transform: string): string {
   }
 }
 
-// Export policy to JSON
+// Export policy to JSON - Platform specific
 export function exportPolicy(policy: WAFPolicy): any {
-  return {
-    name: policy.name,
-    location: 'Global',
-    properties: {
-      policySettings: policy.policySettings,
-      customRules: {
-        rules: policy.customRules.map(rule => ({
+  if (policy.target === 'AFD') {
+    return {
+      name: policy.name,
+      location: 'Global',
+      properties: {
+        policySettings: {
+          enabledState: policy.policySettings.enabledState,
+          mode: policy.mode,
+          requestBodyCheck: policy.policySettings.requestBodyCheck ? 'Enabled' : 'Disabled'
+        },
+        customRules: {
+          rules: policy.customRules.map(rule => ({
+            name: rule.name,
+            priority: rule.priority,
+            ruleType: rule.ruleType,
+            action: rule.action,
+            enabledState: rule.enabled ? 'Enabled' : 'Disabled',
+            matchConditions: rule.matchConditions.map(mc => ({
+              matchVariable: mc.matchVariable,
+              operator: mc.operator,
+              matchValue: mc.matchValue,
+              ...(mc.selector && { selector: mc.selector }),
+              ...(mc.negateCondition && { negateCondition: mc.negateCondition }),
+              ...(mc.transforms && mc.transforms.length > 0 && { transforms: mc.transforms })
+            })),
+            ...(rule.ruleType === 'RateLimitRule' && {
+              rateLimitThreshold: rule.rateLimitThreshold,
+              rateLimitDurationInMinutes: rule.rateLimitDuration
+            })
+          }))
+        },
+        managedRules: {
+          managedRuleSets: policy.managedRules.enabled ? [{
+            ruleSetType: policy.managedRules.ruleSetType || 'Microsoft_DefaultRuleSet',
+            ruleSetVersion: policy.managedRules.ruleSetVersion || '2.1'
+          }] : []
+        }
+      }
+    }
+  } else {
+    // Application Gateway format
+    return {
+      name: policy.name,
+      location: 'global',
+      properties: {
+        policySettings: {
+          state: policy.policySettings.enabledState,
+          mode: policy.mode,
+          requestBodyCheck: policy.policySettings.requestBodyCheck,
+          maxRequestBodySizeInKb: policy.policySettings.maxRequestBodySizeInKb,
+          fileUploadLimitInMb: policy.policySettings.fileUploadLimitInMb
+        },
+        customRules: policy.customRules.map(rule => ({
           name: rule.name,
           priority: rule.priority,
           ruleType: rule.ruleType,
           action: rule.action,
-          enabledState: rule.enabled ? 'Enabled' : 'Disabled',
-          matchConditions: rule.matchConditions,
-          ...(rule.ruleType === 'RateLimitRule' && {
-            rateLimitThreshold: rule.rateLimitThreshold,
-            rateLimitDurationInMinutes: rule.rateLimitDuration,
-            groupByUserSession: rule.groupBy
-          })
-        }))
-      },
-      managedRules: policy.managedRules
+          state: rule.enabled ? 'Enabled' : 'Disabled',
+          matchConditions: rule.matchConditions.map(mc => ({
+            matchVariables: [{
+              variableName: mc.matchVariable,
+              ...(mc.selector && { selector: mc.selector })
+            }],
+            operator: mc.operator,
+            matchValues: mc.matchValue,
+            ...(mc.negateCondition && { negationCondition: mc.negateCondition }),
+            ...(mc.transforms && mc.transforms.length > 0 && { transforms: mc.transforms })
+          }))
+        })),
+        managedRules: {
+          managedRuleSets: policy.managedRules.enabled ? [{
+            ruleSetType: policy.managedRules.ruleSetType || 'OWASP',
+            ruleSetVersion: policy.managedRules.ruleSetVersion || '3.2'
+          }] : []
+        }
+      }
     }
   }
 }
@@ -448,6 +557,77 @@ output policyName string = wafPolicy.name
 `
 }
 
+// Generate Azure Front Door Bicep parameters file for AVM module
+export function generateAFDBicepParamFile(policy: WAFPolicy): string {
+  const customRulesSection = policy.customRules.map(rule => {
+    const matchConditions = rule.matchConditions.map(cond => {
+      const selectorLine = cond.selector ? `          selector: '${cond.selector}'\n` : ''
+      const negateConditionLine = cond.negateCondition ? `          negateCondition: true\n` : ''
+      const transformsLine = cond.transforms && cond.transforms.length > 0 
+        ? `          transforms: [${cond.transforms.map(t => `'${t}'`).join(', ')}]\n`
+        : '          transforms: []\n'
+      
+      return `        {
+          matchVariable: '${cond.matchVariable}'
+          operator: '${cond.operator}'
+${selectorLine}          matchValue: [
+            ${cond.matchValue.map(v => `'${v}'`).join('\n            ')}
+          ]
+${negateConditionLine}${transformsLine}        }`
+    }).join('\n')
+
+    return `    {
+      name: '${rule.name}'
+      priority: ${rule.priority}
+      ruleType: '${rule.ruleType}'
+      action: '${rule.action}'
+      enabledState: '${rule.enabled ? 'Enabled' : 'Disabled'}'
+      matchConditions: [
+${matchConditions}
+      ]
+    }`
+  }).join('\n')
+
+  return `using 'br/public:avm/res/network/front-door-web-application-firewall-policy:0.3.2'
+
+// Required parameters
+param name = '${policy.name}'
+param sku = 'Premium_AzureFrontDoor'
+
+// Optional parameters
+param location = 'global'
+
+param customRules = {
+  rules: [
+${customRulesSection}
+  ]
+}
+
+param managedRules = {
+  managedRuleSets: [
+    {
+      ruleSetType: '${policy.managedRules.ruleSetType}'
+      ruleSetVersion: '${policy.managedRules.ruleSetVersion}'
+      ruleSetAction: 'Block'
+      exclusions: []
+      ruleGroupOverrides: []
+    }
+  ]
+}
+
+param policySettings = {
+  enabledState: '${policy.policySettings.enabledState}'
+  mode: '${policy.mode}'
+  requestBodyCheck: 'Enabled'
+}
+
+param tags = {
+  Environment: 'Production'
+  ManagedBy: 'WAF-Policy-Designer'
+}
+`
+}
+
 // Generate Application Gateway Bicep template
 export function generateAppGWBicepTemplate(policy: WAFPolicy): string {
   return `// Application Gateway WAF Policy
@@ -502,5 +682,77 @@ ${rule.matchConditions.map(cond => `          {
 
 output policyId string = wafPolicy.id
 output policyName string = wafPolicy.name
+`
+}
+
+// Generate Application Gateway Bicep parameters file for AVM module
+export function generateAppGWBicepParamFile(policy: WAFPolicy): string {
+  const customRulesSection = policy.customRules.map(rule => {
+    const matchConditions = rule.matchConditions.map(cond => {
+      const selectorLine = cond.selector ? `selector: '${cond.selector}'\n            ` : ''
+      const negateConditionLine = cond.negateCondition ? `negateCondition: true\n        ` : ''
+      const transformsLine = cond.transforms && cond.transforms.length > 0 
+        ? `transforms: [${cond.transforms.map(t => `'${t}'`).join(', ')}]\n        `
+        : ''
+      
+      return `      {
+        matchVariables: [
+          {
+            variableName: '${cond.matchVariable}'
+            ${selectorLine}}
+        ]
+        operator: '${cond.operator}'
+        matchValues: [
+          ${cond.matchValue.map(v => `'${v}'`).join('\n          ')}
+        ]
+        ${negateConditionLine}${transformsLine}}`
+    }).join('\n')
+
+    return `  {
+    name: '${rule.name}'
+    priority: ${rule.priority}
+    ruleType: '${rule.ruleType}'
+    action: '${rule.action}'
+    state: '${rule.enabled ? 'Enabled' : 'Disabled'}'
+    matchConditions: [
+${matchConditions}
+    ]
+  }`
+  }).join('\n')
+
+  return `using 'br/public:avm/res/network/application-gateway-web-application-firewall-policy:0.2.0'
+
+// Required parameters
+param name = '${policy.name}'
+
+param managedRules = {
+  managedRuleSets: [
+    {
+      ruleSetType: '${policy.managedRules.ruleSetType}'
+      ruleSetVersion: '${policy.managedRules.ruleSetVersion}'
+      ruleGroupOverrides: []
+    }
+  ]
+}
+
+// Optional parameters
+param location = resourceGroup().location
+
+param customRules = [
+${customRulesSection}
+]
+
+param policySettings = {
+  state: '${policy.policySettings.enabledState}'
+  mode: '${policy.mode}'
+  requestBodyCheck: ${policy.policySettings.requestBodyCheck}
+  maxRequestBodySizeInKb: ${policy.policySettings.maxRequestBodySizeInKb}
+  fileUploadLimitInMb: ${policy.policySettings.fileUploadLimitInMb}
+}
+
+param tags = {
+  Environment: 'Production'
+  ManagedBy: 'WAF-Policy-Designer'
+}
 `
 }

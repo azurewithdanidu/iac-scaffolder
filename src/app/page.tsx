@@ -62,10 +62,10 @@ export default function HomePage() {
             </CardContent>
           </Card>
           
-          <Card className="h-full opacity-60">
+          <Card className="h-full">
             <CardHeader className="text-center">
-              <div className="mx-auto w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-4">
-                <FileCode className="w-6 h-6 text-gray-400" />
+              <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
+                <FileCode className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
               <CardTitle>WAF Policy Simulator</CardTitle>
               <CardDescription>
@@ -73,9 +73,9 @@ export default function HomePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="text-center">
-              <Button variant="secondary" disabled className="w-full">
-                Coming Soon
-              </Button>
+              <Link href="/waf">
+                <Button className="w-full">Launch WAF Tools</Button>
+              </Link>
             </CardContent>
           </Card>
           
