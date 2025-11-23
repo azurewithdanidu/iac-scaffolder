@@ -4,12 +4,27 @@ CloudBlueprint is a Next.js web application that generates complete Azure Infras
 
 ## 🚀 Features
 
+### IaC Scaffolder
 - **100% Client-Side**: No backend required, all generation happens in your browser
 - **Enterprise Ready**: Built with Azure best practices and governance patterns
 - **Complete Repository**: Generates full folder structure with Bicep templates, GitHub Actions, and documentation
 - **Naming Conventions**: Implements Azure Cloud Adoption Framework naming standards
 - **Module System**: Uses Azure Verified Modules (AVM) wrappers for consistency
 - **Multi-Environment**: Supports dev/test/prod environments with region-specific configurations
+
+### Workload Builder (NEW! ⚡)
+- **Pick & Choose Services**: Select from 30+ Azure services by category (Compute, Storage, Database, etc.)
+- **Visual Service Selection**: Browse and add exactly what your workload needs
+- **AVM Module Integration**: Uses Azure Verified Modules with proper versioning
+- **Complete Parameter Generation**: ALL required and optional parameters included
+- **Cross-Service Dependencies**: Auto-wires service references (Web App → App Service Plan, etc.)
+- **Production-Ready Templates**: Download deployment-ready Bicep with parameter files
+- **Real-Time Preview**: Watch your template build as you add services
+
+### WAF Policy Simulator (Coming Soon 🔜)
+- **Policy Designer**: Create and test Web Application Firewall policies
+- **Request Simulator**: Test HTTP requests against WAF rules
+- **Export Capabilities**: Generate deployable WAF policy templates
 
 ## 🏗️ Architecture
 
@@ -80,6 +95,8 @@ cloudblueprint/
 
 ## 🎯 Usage
 
+### IaC Scaffolder
+
 1. **Home Page**: Choose "IaC Scaffolder" to start the wizard
 2. **Wizard Steps**:
    - **Organization**: Enter your org and workload names
@@ -95,6 +112,32 @@ cloudblueprint/
    - Environment-specific parameter files
    - Comprehensive documentation
    - Ready-to-use naming convention modules
+
+### Workload Builder
+
+1. **Select Services**: Browse 30+ Azure services organized by category
+   - Compute: Virtual Machines, AKS, App Service Plans, Batch
+   - Hosting: Web Apps, Function Apps, Static Web Apps
+   - Storage: Storage Accounts, Disks, File Shares
+   - Database: SQL, Cosmos DB, PostgreSQL, MySQL
+   - Networking: Virtual Networks, Load Balancers, App Gateway
+   - Security: Key Vault, Managed Identity, Private Endpoints
+   - And more...
+
+2. **Customize Instances**: Add multiple instances of the same service with unique names
+
+3. **Auto-Dependency Wiring**: The builder automatically:
+   - Links Web Apps to App Service Plans
+   - Connects Function Apps to Storage Accounts
+   - Wires Container Apps to Container Environments
+   - Associates Application Insights with Log Analytics
+
+4. **Download Template**: Get a complete Bicep template with:
+   - ALL required AVM module parameters
+   - Proper parameter declarations with types and defaults
+   - Cross-service resource ID references
+   - Outputs for all deployed resources
+   - Ready-to-customize parameter values
 
 ## 📋 Generated Components
 
