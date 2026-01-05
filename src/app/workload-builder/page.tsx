@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Download, Database, Globe, Code, Settings, Server, HardDrive, Eye, FileCode, Plus, Trash2, Edit3, Shield, Cloud, Layers, Network, Brain, Cpu, Monitor } from 'lucide-react'
+import avmMetadata from '@/data/avm-parameters.json'
 
 interface AzureService {
   id: string
@@ -556,7 +557,40 @@ export default function WorkloadBuilderPage() {
     }
 
     try {
-      // For now, return fallback parameters to avoid API issues
+      // First, try to load from pre-generated metadata
+      const metadata = avmMetadata as any
+      if (metadata.modules && metadata.modules[avmModuleRef]) {
+        const moduleData = metadata.modules[avmModuleRef]
+        
+        // Convert the metadata format to our parameter format
+        const parameterDefinitions: Record<string, any> = {}
+        
+        for (const [paramName, paramInfo] of Object.entries(moduleData.allParameters || {})) {
+          const info = paramInfo as any
+          parameterDefinitions[paramName] = {
+            type: info.type,
+            description: info.description,
+            // If hasDefault is false, there's no default value
+            ...(info.hasDefault === false ? {} : { defaultValue: true })
+          }
+        }
+        
+        const parameters = {
+          required: moduleData.required || ['name'],
+          optional: [],
+          parameterDefinitions
+        }
+        
+        // Cache and return
+        setAvmParametersCache(prev => ({
+          ...prev,
+          [avmModuleRef]: parameters
+        }))
+        
+        return parameters
+      }
+      
+      // Fallback to hardcoded parameters if not in metadata
       const parameters = getFallbackParameters(avmModuleRef)
       
       // Cache the result
@@ -748,47 +782,35 @@ param tags object = {
       bicepContent += `\n// Parameters for ${instanceName} (${service.name})\n`
       
       if (parameters.parameterDefinitions) {
-        // Generate parameters from comprehensive definitions
+        // Only generate parameters for required params without defaults (need user input)
         for (const [paramName, paramDef] of Object.entries(parameters.parameterDefinitions)) {
           if (paramName === 'name' || paramName === 'location' || paramName === 'tags') {
             // Skip common parameters we handle globally
             continue
           }
           
-          const isRequired = parameters.required.includes(paramName)
+          // Use the service definition's required array, not the fallback one
+          const isRequired = service.required.includes(paramName)
           const paramInfo = paramDef as any
+          const hasDefault = paramInfo.defaultValue !== undefined
           
-          bicepContent += `@description('${paramInfo.description || `${paramName} for ${instanceName}`}')\n`
-          
-          if (paramInfo.allowedValues) {
-            bicepContent += `@allowed([${paramInfo.allowedValues.map((v: any) => `'${v}'`).join(', ')}])\n`
-          }
-          
-          if (paramInfo.type === 'secureString') {
-            bicepContent += `@secure()\n`
-          }
-          
-          const paramNameWithInstance = `${instanceId}_${paramName}`
-          
-          if (paramInfo.defaultValue !== undefined) {
-            if (typeof paramInfo.defaultValue === 'string') {
-              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = '${paramInfo.defaultValue}'\n`
-            } else if (typeof paramInfo.defaultValue === 'boolean') {
-              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = ${paramInfo.defaultValue}\n`
-            } else if (typeof paramInfo.defaultValue === 'object') {
-              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = ${JSON.stringify(paramInfo.defaultValue)}\n`
-            } else {
-              bicepContent += `param ${paramNameWithInstance} ${paramInfo.type} = ${paramInfo.defaultValue}\n`
+          // Only create parameter declarations for required params without defaults
+          // These are the ones the user MUST provide
+          if (isRequired && !hasDefault) {
+            bicepContent += `@description('${paramInfo.description || `${paramName} for ${instanceName}`}')\n`
+            
+            if (paramInfo.allowedValues) {
+              bicepContent += `@allowed([${paramInfo.allowedValues.map((v: any) => `'${v}'`).join(', ')}])\n`
             }
-          } else if (!isRequired) {
-            // Optional parameter without default
-            bicepContent += `param ${paramNameWithInstance} ${paramInfo.type}?\n`
-          } else {
-            // Required parameter without default
+            
+            if (paramInfo.type === 'secureString') {
+              bicepContent += `@secure()\n`
+            }
+            
+            const paramNameWithInstance = `${instanceId}_${paramName}`
             bicepContent += `param ${paramNameWithInstance} ${paramInfo.type}\n`
+            bicepContent += '\n'
           }
-          
-          bicepContent += '\n'
         }
       }
     }
@@ -825,7 +847,8 @@ module ${instanceSafeName}_module '${service.avmModule}' = {
           }
           
           const paramNameWithInstance = `${instanceId}_${paramName}`
-          const isRequired = parameters.required.includes(paramName)
+          // Use the service definition's required array, not the fallback one
+          const isRequired = service.required.includes(paramName)
           const hasDefault = (paramDef as any).defaultValue !== undefined
           
           // Handle special cross-service references
@@ -878,9 +901,11 @@ module ${instanceSafeName}_module '${service.avmModule}' = {
             continue
           }
           
-          // Include ALL required parameters, even without defaults
-          // Include optional parameters that have defaults
-          if (isRequired || hasDefault) {
+          // Only include required parameters that DON'T have defaults
+          // Parameters with defaults will use their default values from the module
+          // Optional parameters are not included unless explicitly set
+          if (isRequired && !hasDefault) {
+            const paramNameWithInstance = `${instanceId}_${paramName}`
             bicepContent += `    ${paramName}: ${paramNameWithInstance}\n`
           }
         }

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Code, FileCode, Layers, BookOpen } from 'lucide-react'
+import { Code, FileCode, Layers } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 export default function HomePage() {
@@ -27,7 +27,7 @@ export default function HomePage() {
           </p>
         </div>
         
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
           <Card className="h-full">
             <CardHeader className="text-center">
               <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
@@ -67,32 +67,15 @@ export default function HomePage() {
               <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
                 <FileCode className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
-              <CardTitle>WAF Policy Simulator</CardTitle>
+              <CardTitle>AFD WAF Rule Designer</CardTitle>
               <CardDescription>
-                Design, test, and export Azure WAF policies for Front Door and Application Gateway
+                Design, test, and export Azure Front Door WAF policies with AVM-compatible Bicep parameters
               </CardDescription>
             </CardHeader>
             <CardContent className="text-center">
-              <Link href="/waf">
-                <Button className="w-full">Launch WAF Tools</Button>
+              <Link href="/waf/afd-designer">
+                <Button className="w-full">Launch Designer</Button>
               </Link>
-            </CardContent>
-          </Card>
-          
-          <Card className="h-full opacity-60">
-            <CardHeader className="text-center">
-              <div className="mx-auto w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-4">
-                <BookOpen className="w-6 h-6 text-gray-400" />
-              </div>
-              <CardTitle>Documentation</CardTitle>
-              <CardDescription>
-                Generate comprehensive documentation for your Azure infrastructure and deployments
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <Button variant="secondary" disabled className="w-full">
-                Coming Soon
-              </Button>
             </CardContent>
           </Card>
         </div>
@@ -125,7 +108,7 @@ export default function HomePage() {
       </main>
       
       <footer className="container mx-auto px-4 py-8 text-center text-gray-600 dark:text-gray-400">
-        <p>&copy; 2024 CloudBlueprint. Open source project for the Azure community.</p>
+        <p>&copy; 2026 CloudBlueprint. Open source project for the Azure community.</p>
       </footer>
     </div>
   )
