@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Code, FileCode, Layers } from 'lucide-react'
+import { Bot, Code, FileCode, Layers } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 export default function HomePage() {
@@ -75,6 +75,23 @@ export default function HomePage() {
             <CardContent className="text-center">
               <Link href="/waf/afd-designer">
                 <Button className="w-full">Launch Designer</Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card className="h-full">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
+                <Bot className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <CardTitle>AI Foundry</CardTitle>
+              <CardDescription>
+                AI-powered chat and contextual help for Azure IaC, Bicep, and AVM modules via Azure AI Foundry
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <Link href="/ai-foundry">
+                <Button className="w-full">Open AI Assistant</Button>
               </Link>
             </CardContent>
           </Card>
