@@ -44,11 +44,82 @@ az webapp deployment list-publishing-profiles \
    - **Build Provider**: GitHub Actions
 
 3. **Configure Application Settings**
+   
+   Go to Configuration > Application settings and add:
+   
    ```
    NODE_ENV = production
    WEBSITE_NODE_DEFAULT_VERSION = 18-lts
-   WEBSITE_RUN_FROM_PACKAGE = 1
+   SCM_DO_BUILD_DURING_DEPLOYMENT = true
    ```
+
+   **Important:** Do NOT set `WEBSITE_RUN_FROM_PACKAGE = 1` as this prevents the build from running.
+
+## ⚠️ Build Configuration (Required)
+
+**Problem:** Azure App Service may try to start the app before building it, causing errors like:
+```
+Error: ENOENT: no such file or directory, open '/home/site/wwwroot/.next/server/app-paths-manifest.json'
+```
+
+**Solution:** The following files ensure the app builds before starting:
+
+### 1. oryx-post-build.sh
+This script runs automatically after `npm install`:
+```bash
+#!/bin/bash
+echo "Building Next.js application..."
+npm run build
+```
+
+Make it executable:
+```bash
+chmod +x oryx-post-build.sh
+```
+
+### 2. .deployment
+Tells Azure to use the custom deployment script:
+```
+[config]
+command = deploy.sh
+```
+
+### 3. deploy.sh
+Complete deployment script with build step:
+```bash
+#!/bin/bash
+cd /home/site/wwwroot
+npm ci --production=false
+npm run build
+```
+
+### 4. package.json
+Ensure these settings are present:
+```json
+{
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "next build",
+    "start": "node server.js"
+  }
+}
+```
+
+### Deploy These Files
+```bash
+git add .deployment deploy.sh oryx-post-build.sh package.json
+git commit -m "Add Azure build configuration"
+git push
+```
+
+After pushing, redeploy the App Service. Check the deployment logs to verify you see:
+```
+Building Next.js application...
+Compiled successfully
+```
 
 ## GitHub Actions Setup
 
