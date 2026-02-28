@@ -46,4 +46,4 @@ yarn-error.log*
 
 # OS
 Thumbs.db
-.github
+# Note: .github removed from gitignore to allow GitHub Actions workflows
