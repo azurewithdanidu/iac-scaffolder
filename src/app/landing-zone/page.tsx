@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Download, FileCode, Building2, Package, Wrench, CheckCircle2, AlertCircle } from 'lucide-react'
 
@@ -80,9 +80,9 @@ export default function LandingZonePage() {
   const [customTags, setCustomTags] = useState<Array<{ key: string; value: string }>>([{ key: '', value: '' }])
 
   // Fetch templates on mount
-  useState(() => {
+  useEffect(() => {
     fetchTemplates()
-  })
+  }, [])
 
   const fetchTemplates = async () => {
     try {
