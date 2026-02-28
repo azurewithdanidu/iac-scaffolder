@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Code, FileCode, Layers } from 'lucide-react'
+import { Code, FileCode, Layers, Building2 } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 export default function HomePage() {
@@ -27,7 +27,7 @@ export default function HomePage() {
           </p>
         </div>
         
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
           <Card className="h-full">
             <CardHeader className="text-center">
               <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
@@ -75,6 +75,23 @@ export default function HomePage() {
             <CardContent className="text-center">
               <Link href="/waf/afd-designer">
                 <Button className="w-full">Launch Designer</Button>
+              </Link>
+            </CardContent>
+          </Card>
+          
+          <Card className="h-full">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
+                <Building2 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <CardTitle>Landing Zone Vending</CardTitle>
+              <CardDescription>
+                Self-service portal for provisioning Azure Landing Zones with Azure Verified Modules
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <Link href="/landing-zone">
+                <Button className="w-full">Create Landing Zone</Button>
               </Link>
             </CardContent>
           </Card>
