@@ -38,16 +38,31 @@ jobs:
 
       - name: Create deployment package
         run: |
-          # Create a clean zip that explicitly includes .next
+          # List what's getting zipped
+          echo "=== Contents to be zipped ==="
+          ls -lah .next/ node_modules/ public/ src/ *.js *.json 2>/dev/null || true
+          
+          # Create zip with specific files and folders
           zip -r release.zip \
-            .next \
-            node_modules \
-            public \
-            src \
-            *.js \
-            *.json \
-            *.config.* \
-            -x "*.git*" "*.md" "*.disabled" ".github/*" ".vscode/*"
+            .next/ \
+            node_modules/ \
+            public/ \
+            src/ \
+            server.js \
+            package.json \
+            package-lock.json \
+            next.config.js \
+            tsconfig.json \
+            tailwind.config.ts \
+            postcss.config.js \
+            next-env.d.ts
+          
+          # Verify zip contents
+          echo "=== Zip contents verification ==="
+          unzip -l release.zip | head -50
+          
+          # Check zip size
+          ls -lh release.zip
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
