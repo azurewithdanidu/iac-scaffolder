@@ -29,16 +29,25 @@ jobs:
           npm run build
           npm prune --production
 
-      - name: Zip artifact for deployment
+      - name: Verify build artifacts
         run: |
-          zip -r release.zip . \
-            -x "*.git*" \
-            -x ".github/*" \
-            -x ".vscode/*" \
-            -x "*.md" \
-            -x ".deployment*" \
-            -x "*.disabled" \
-            -x "azure-logs.zip"
+          echo "Checking .next folder..."
+          ls -la .next/
+          ls -la .next/server/
+          echo ".next folder verified!"
+
+      - name: Create deployment package
+        run: |
+          # Create a clean zip that explicitly includes .next
+          zip -r release.zip \
+            .next \
+            node_modules \
+            public \
+            src \
+            *.js \
+            *.json \
+            *.config.* \
+            -x "*.git*" "*.md" "*.disabled" ".github/*" ".vscode/*"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
