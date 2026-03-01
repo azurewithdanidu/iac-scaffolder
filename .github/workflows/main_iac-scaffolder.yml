@@ -30,7 +30,15 @@ jobs:
           npm prune --production
 
       - name: Zip artifact for deployment
-        run: zip -r release.zip . -x "*.git*"
+        run: |
+          zip -r release.zip . \
+            -x "*.git*" \
+            -x ".github/*" \
+            -x ".vscode/*" \
+            -x "*.md" \
+            -x ".deployment*" \
+            -x "*.disabled" \
+            -x "azure-logs.zip"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
