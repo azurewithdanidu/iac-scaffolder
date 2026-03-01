@@ -44,20 +44,30 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
-      linuxFxVersion: 'NODE|18-lts'
+      linuxFxVersion: 'NODE|22-lts'
       appCommandLine: 'npm start'
+      healthCheckPath: '/'
+      containerStartTimeLimit: 600
       appSettings: [
         {
           name: 'WEBSITE_NODE_DEFAULT_VERSION'
-          value: '18-lts'
+          value: '22-lts'
         }
         {
           name: 'NODE_ENV'
           value: 'production'
         }
         {
-          name: 'WEBSITE_RUN_FROM_PACKAGE'
-          value: '1'
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'true'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'true'
+        }
+        {
+          name: 'PORT'
+          value: '8080'
         }
       ]
       alwaysOn: appServicePlanSku != 'F1' ? true : false
