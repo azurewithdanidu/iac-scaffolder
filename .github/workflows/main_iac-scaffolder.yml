@@ -25,17 +25,18 @@ jobs:
 
       - name: npm install, build, and test
         run: |
-          npm install
+          npm ci
           npm run build
+          npm prune --production
+
+      - name: Zip artifact for deployment
+        run: zip -r release.zip . -x "*.git*"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: |
-            .
-            !node_modules
-            !.git
+          path: release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -63,5 +64,5 @@ jobs:
         with:
           app-name: 'iac-scaffolder'
           slot-name: 'Production'
-          package: .
+          package: release.zip
           
